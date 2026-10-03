@@ -77,8 +77,8 @@ async function renderHome() {
     <div class="home">
       <section class="intro">
         <div class="seg" role="tablist" aria-label="Mode">
-          <button type="button" role="tab" data-mode="watch" aria-selected="${state.mode === "watch"}">Watch: live brand threats</button>
-          <button type="button" role="tab" data-mode="defend" aria-selected="${state.mode === "defend"}">Trace a rumor</button>
+          <button type="button" role="tab" data-mode="watch" aria-selected="${state.mode === "watch"}">Watch a brand</button>
+          <button type="button" role="tab" data-mode="defend" aria-selected="${state.mode === "defend"}">Trace a specific rumor</button>
           <button type="button" role="tab" data-mode="counter" aria-selected="${state.mode === "counter"}">Counter: competitor gap x inventory</button>
         </div>
         ${state.mode === "watch" ? watchForm() : state.mode === "counter" ? counterForm() : `
@@ -714,23 +714,29 @@ const isThreat = (n) => n.threat_type !== "praise" && (n.severity >= 1 || n.scor
 
 function watchForm() {
   return `
-    <h1>Watch any brand. See threats the moment they start moving.</h1>
-    <p>Type a brand or product. Contagion starts listening across news, forums, social and video right away, reads every new mention,
-    groups them into narratives, scores the threat, alerts your team, and drafts a response plan a person approves. Nothing is posted or sent automatically.</p>
-    <form id="watch-form" autocomplete="off">
-      <div class="field"><label for="w-brand">Brand</label><input id="w-brand" name="brand" required maxlength="120" placeholder="e.g. Stanley"></div>
-      <div class="row">
-        <div class="field"><label for="w-product">Product or campaign <span class="hint">optional</span></label><input id="w-product" name="product" maxlength="120" placeholder="e.g. Quencher tumbler"></div>
-        <div class="field"><label for="w-domain">Official site <span class="hint">optional</span></label><input id="w-domain" name="domain" maxlength="200" placeholder="stanley1913.com"></div>
+    <h1 class="hero-h">Type a brand. Get alerted the moment talk about it turns into a threat.</h1>
+    <form id="watch-form" class="hero-form" autocomplete="off">
+      <div class="hero-input">
+        <input id="w-brand" name="brand" required maxlength="120" placeholder="Brand or product, e.g. Stanley" aria-label="Brand or product" autofocus>
+        <button class="btn" type="submit">Start watching</button>
       </div>
-      <div class="field"><label for="w-kw">Extra keywords <span class="hint">comma separated, optional</span></label><input id="w-kw" name="keywords" placeholder="e.g. stanley cup lead, stanley recall"></div>
-      <details class="rules"><summary>Verified brand facts (optional)</summary>
-        <div class="field"><label for="w-pos">Facts drafts may use <span class="hint">anything else becomes a [CONFIRM] placeholder</span></label>
+      <details class="rules"><summary>More options (product, site, keywords, verified facts)</summary>
+        <div class="row">
+          <div class="field"><label for="w-product">Product or campaign</label><input id="w-product" name="product" maxlength="120" placeholder="e.g. Quencher tumbler"></div>
+          <div class="field"><label for="w-domain">Official site</label><input id="w-domain" name="domain" maxlength="200" placeholder="stanley1913.com"></div>
+        </div>
+        <div class="field"><label for="w-kw">Extra keywords <span class="hint">comma separated</span></label><input id="w-kw" name="keywords" placeholder="e.g. stanley cup lead, stanley recall"></div>
+        <div class="field"><label for="w-pos">Verified brand facts <span class="hint">drafts may use these; anything else becomes a [CONFIRM] placeholder</span></label>
         <textarea id="w-pos" name="position" rows="3" maxlength="2000"></textarea></div>
       </details>
       <div id="form-error"></div>
-      <div class="row-end"><button class="btn" type="submit">Start watching</button></div>
-    </form>`;
+    </form>
+    <ol class="how">
+      <li><b>Listens</b> across news, forums, Bluesky, YouTube and the open web (TikTok, X, Reddit via search), every 90 seconds.</li>
+      <li><b>Reads every mention</b> and groups them into narratives with a 0 to 100 threat score.</li>
+      <li><b>Alerts your team</b> when a narrative turns serious, speeds up, jumps platforms or hits the news.</li>
+      <li><b>Drafts a response plan</b> with owners and ready-to-edit copy. A person approves everything; nothing is posted or sent.</li>
+    </ol>`;
 }
 
 function wireWatchForm() {

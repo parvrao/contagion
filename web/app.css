@@ -402,3 +402,13 @@ main:has(.watch) { max-width: 1320px; }
   .kpis { grid-template-columns: repeat(2, 1fr); }
 }
 .detail .action-body textarea { min-height: 96px; }
+.hero-h { font-size: 30px; line-height: 1.15; max-width: 22ch; margin-bottom: 18px; }
+.hero-input { display: flex; gap: 8px; }
+.hero-input input { font-size: 17px; padding: 13px 14px; }
+.hero-input .btn { white-space: nowrap; padding: 0 20px; font-size: 15px; }
+.hero-form .rules { margin-top: 12px; }
+.how { margin: 22px 0 0; padding: 0; list-style: none; counter-reset: how; border-top: 1px solid var(--line); }
+.how li { counter-increment: how; padding: 10px 0 10px 34px; border-bottom: 1px solid var(--line); font-size: 14px; color: var(--ink-2); position: relative; }
+.how li::before { content: counter(how, decimal-leading-zero); position: absolute; left: 0; top: 11px; font: 12px var(--mono); color: var(--muted); }
+.how b { color: var(--ink); font-weight: 600; }
+@media (max-width: 900px) { .hero-h { font-size: 24px; } .hero-input { flex-direction: column; } .hero-input .btn { padding: 11px; } }
