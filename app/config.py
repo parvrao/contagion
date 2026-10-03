@@ -31,6 +31,8 @@ def _env(name: str, default: str = "") -> str:
 class Settings:
     anthropic_api_key: str = field(default_factory=lambda: _env("ANTHROPIC_API_KEY"))
     anthropic_model: str = field(default_factory=lambda: _env("CONTAGION_MODEL", "claude-sonnet-4-5"))
+    # Cheaper, faster model for high-volume labeling; the main model writes plans and drafts.
+    fast_model: str = field(default_factory=lambda: _env("CONTAGION_FAST_MODEL", "claude-haiku-4-5"))
     anthropic_base_url: str = field(default_factory=lambda: _env("ANTHROPIC_API_URL", "https://api.anthropic.com"))
 
     openai_api_key: str = field(default_factory=lambda: _env("OPENAI_API_KEY"))

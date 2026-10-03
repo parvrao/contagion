@@ -9,7 +9,7 @@ import asyncio
 import time
 import traceback
 
-from . import analyze, respond, spread, store
+from . import analyze, llm, respond, spread, store
 from .config import settings
 from .models import Case, Item, LogLine, Probe, now_iso
 from .probes import all_engines, profound
@@ -31,11 +31,18 @@ def _stage(case: Case, stage: str) -> None:
     store.publish(case.id, {"type": "stage", "stage": stage})
 
 
-async def run_case(case: Case) -> None:
+SOURCE_TIMEOUT = float(__import__("os").environ.get("CONTAGION_SOURCE_TIMEOUT", "20"))
+SWEEP_TIMEOUT = float(__import__("os").environ.get("CONTAGION_SWEEP_TIMEOUT", "60"))
+SEED_MIN = 5
+SOURCE_CACHE_TTL = 900.0
+_source_cache: dict[tuple, tuple[float, list]] = {}
+
+
+async def run_case(case: Case, seed_items: list[Item] | None = None) -> None:
     t0 = time.monotonic()
     case.status = "running"
     try:
-        questions = await discovery(case)
+        questions = await discovery(case, seed_items or [])
         await analysis(case)
         await cross_reference(case, questions)
         await synthesis(case, questions)
@@ -54,7 +61,7 @@ async def run_case(case: Case) -> None:
 
 # ---------- Stage 1 ----------
 
-async def discovery(case: Case) -> list[str]:
+async def discovery(case: Case, seed_items: list[Item] | None = None) -> list[str]:
     _stage(case, "discovery")
     ci = case.input
     queries, questions = await analyze.plan_queries(ci)
@@ -65,23 +72,49 @@ async def discovery(case: Case) -> list[str]:
     plan = SearchPlan(brand=ci.brand, claim=ci.claim, queries=queries, since=ci.since, until=ci.until,
                       limit=settings.max_items_per_source)
 
+    seed_items = seed_items or []
+    if len(seed_items) >= SEED_MIN:
+        # Deep trace from a Watch: the watch already collected these posts, so don't search again.
+        merged = {}
+        for it in seed_items:
+            merged.setdefault(spread.norm_url(it.url), it)
+        case.items = list(merged.values())
+        case.sources_status["Watch mentions"] = f"reused ({len(case.items)})"
+        _log(case, "discovery", f"Reused {len(case.items)} posts the watch already collected; skipped searching again.")
+        store.save(case)
+        return questions
+
     async def run_source(src):
         ok, reason = src.enabled()
         if not ok:
             case.sources_status[src.platform] = f"skipped: {reason}"
             _log(case, "discovery", f"{src.platform}: skipped ({reason})", "warn")
             return []
+        key = (src.name, tuple(plan.queries), plan.since, plan.until)
+        hit = _source_cache.get(key)
+        if hit and time.monotonic() - hit[0] < SOURCE_CACHE_TTL:
+            found = [it.model_copy(deep=True) for it in hit[1]]
+            case.sources_status[src.platform] = f"ok ({len(found)}, cached)"
+            _log(case, "discovery", f"{src.platform}: {len(found)} public items (cached from a run in the last 15 min)")
+            return found
         try:
-            found = await src.search(plan)
+            limit = SWEEP_TIMEOUT if src.name in ("web", "youtube") else SOURCE_TIMEOUT
+            found = await asyncio.wait_for(src.search(plan), timeout=limit)
+            _source_cache[key] = (time.monotonic(), [it.model_copy(deep=True) for it in found])
             case.sources_status[src.platform] = f"ok ({len(found)})"
             _log(case, "discovery", f"{src.platform}: {len(found)} public items")
             return found
+        except asyncio.TimeoutError:
+            case.sources_status[src.platform] = "timed out (skipped to keep the run fast)"
+            _log(case, "discovery", f"{src.platform}: no answer in time, skipped", "warn")
+            return []
         except Exception as exc:
             case.sources_status[src.platform] = f"error: {str(exc)[:140]}"
             _log(case, "discovery", f"{src.platform}: failed ({str(exc)[:140]})", "warn")
             return []
 
     results = await asyncio.gather(*[run_source(s) for s in all_sources()])
+    results = list(results) + [seed_items]
     merged: dict[str, Item] = {}
     for batch in results:
         for it in batch:
@@ -156,7 +189,8 @@ async def probe_engines(case: Case, questions: list[str]) -> list[Probe]:
     async def one(engine, q):
         p = Probe(engine=engine.name, mode=engine.mode, question=q)
         try:
-            p.answer, p.citations = await engine.ask(q)
+            with llm.no_cache():   # engine answers must always be live, never cached
+                p.answer, p.citations = await engine.ask(q)
         except Exception as exc:
             p.error = str(exc)[:200]
         await analyze.judge_probe(p, case.input)

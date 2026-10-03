@@ -45,7 +45,7 @@ class WebSearchSource(Source):
             for _, instruction in SWEEPS
         ]
         results = await asyncio.gather(
-            *[llm.search_results(SYSTEM, p, max_searches=4) for p in prompts], return_exceptions=True
+            *[llm.search_results(SYSTEM, p, max_searches=int(__import__("os").environ.get("CONTAGION_SWEEP_SEARCHES", "2"))) for p in prompts], return_exceptions=True
         )
 
         items: dict[str, Item] = {}
@@ -68,7 +68,7 @@ class WebSearchSource(Source):
                 url = str(row.get("url", "")).strip()
                 if not url or (url.rstrip("/") not in seen_urls and domain_of(url) not in seen_hosts):
                     continue
-                published = _iso(row.get("published", ""))
+                published = ""   # a date the model read off a page is not trusted; keep it undated
                 if not in_window(published, plan):
                     continue
                 items[url] = Item(

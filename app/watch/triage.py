@@ -81,7 +81,8 @@ async def triage(w: Watch, new: list[Mention], on_batch=None) -> list[Narrative]
 async def _one_batch(w: Watch, batch: list[Mention]) -> list[Narrative]:
     created: list[Narrative] = []
     try:
-        data = await asyncio.wait_for(llm.complete_json(SYSTEM, _format(w, batch), max_tokens=6000),
+        with llm.fast():   # high-volume labeling runs on the fast model
+            data = await asyncio.wait_for(llm.complete_json(SYSTEM, _format(w, batch), max_tokens=6000),
                                       timeout=float(__import__("os").environ.get("CONTAGION_TRIAGE_TIMEOUT", "90")))
     except asyncio.TimeoutError:
         w.triage_errors = (w.triage_errors + [f"{llm.label()} took over 90 s on a batch; keyword fallback used for it"])[-5:]
@@ -112,6 +113,7 @@ async def _one_batch(w: Watch, batch: list[Mention]) -> list[Narrative]:
             created += _heuristic(w, m)
             continue
         m.triaged = True
+        m.labeled_by = llm.label()
         m.relevant = bool(r.get("relevant", True))
         m.sentiment = r.get("sentiment") if r.get("sentiment") in ("negative", "neutral", "positive", "mixed") else "neutral"
         m.threat_type = r.get("threat_type") if r.get("threat_type") in THREAT_TYPES else "general"
@@ -171,6 +173,7 @@ def _heuristic(w: Watch, m: Mention) -> list[Narrative]:
     text = f"{m.title} {m.text}".lower()
     brand = w.input.brand.lower().split()[0] if w.input.brand else ""
     m.triaged = True
+    m.labeled_by = "keywords"
     full = w.input.brand.lower()
     m.relevant = not brand or full in text or full.replace(" ", "") in text or full.replace(" ", "") in m.url.lower()
     if not m.relevant:

@@ -193,7 +193,7 @@ def apply_rules(skus: list[Sku], ci: CounterInput) -> None:
         s.revenue_unlocked = round(s.surplus_units * s.price, 2)
         if s.unit_cost is not None:
             s.cash_tied = round(s.surplus_units * s.unit_cost, 2)
-            s.holding_cost_month = round(s.cash_tied * ci.holding_cost_pct_year / 100 / 12, 2)
+            s.holding_cost_month = round(s.cash_tied * ci.holding_cost_pct_year / 100 / 12, 2) if ci.holding_cost_pct_year else None
             s.contribution_after_cac = round(s.surplus_units * (s.price - s.unit_cost - (s.max_cac or 0)), 2)
 
         reasons, ok = [], True
@@ -224,9 +224,9 @@ def impact(skus: list[Sku], ci: CounterInput) -> dict:
     tot = lambda attr: round(sum((getattr(s, attr) or 0) for s in flagged), 2)
     return {
         "cash_tied": tot("cash_tied"),
-        "holding_cost_month": tot("holding_cost_month"),
+        "holding_cost_month": tot("holding_cost_month") if ci.holding_cost_pct_year else None,
         "revenue_unlocked": tot("revenue_unlocked"),
         "contribution_after_cac": tot("contribution_after_cac"),
-        "holding_pct_assumption": ci.holding_cost_pct_year,
+        "holding_pct_assumption": ci.holding_cost_pct_year or None,
         "stockout_guard": [{"sku": s.sku, "name": s.name, "days_of_inventory": s.days_of_inventory} for s in skus if s.stockout_risk],
     }

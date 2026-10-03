@@ -5,3 +5,5 @@ data/cases/
 *.pyc
 .venv/
 .contagion-preview.tgz
+
+data/cache/

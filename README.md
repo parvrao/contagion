@@ -41,7 +41,7 @@ Also in Counter:
 
 Guardrails: competitor names/products in copy **block approval** until edited; numbers not in the product data are flagged; edited text is re-checked on approval. Approved packages export as a bulk-import CSV with status **PAUSED**. Nothing is published and no money is spent from the tool.
 
-Sample data: `data/samples/` has a fictional brand ("Northpace") as Counter CSV and as a Shopify product import file.
+Counter only runs on real inventory: a connected Shopify store or your own CSV export. The fictional "Northpace" file lives in `tests/fixtures/` and is used by tests only.
 
 ## Response judgment (Watch plans)
 

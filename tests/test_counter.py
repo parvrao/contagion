@@ -15,7 +15,7 @@ from app.counter.models import CounterCase, CounterInput
 from app.models import Item
 from app.sources.base import Source
 
-SAMPLE = open("data/samples/inventory_sample.csv").read()
+SAMPLE = open("tests/fixtures/inventory_sample.csv").read()
 NOW = datetime.now(timezone.utc)
 
 
@@ -134,7 +134,7 @@ def test_counter_api_and_paused_export(monkeypatch):
     from app.main import app
     c = TestClient(app)
     assert c.get(f"/api/cases/{case.id}").json()["mode"] == "counter"
-    assert "NP-STORM-01" in c.get("/api/samples/inventory.csv").text
+    assert "NP-STORM-01" not in c.get("/api/samples/inventory.csv").text   # no fictional sample served
     a = case.actions[0]
     clean = a.draft.replace(" Unlike AquaDash.", "")
     assert c.post(f"/api/cases/{case.id}/actions/{a.id}", json={"decision": "approve", "text": clean}).status_code == 200
@@ -167,7 +167,7 @@ def test_number_guard_uses_whole_numbers():
 
 def test_dollar_impact_and_stockout_guard():
     skus = inventory.load_csv(SAMPLE)
-    inp = ci(stockout_days=20)
+    inp = ci(stockout_days=20, holding_cost_pct_year=25)
     inventory.apply_rules(skus, inp)
     by = {s.sku: s for s in skus}
     storm = by["NP-STORM-01"]

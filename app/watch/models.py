@@ -55,6 +55,7 @@ class Mention(BaseModel):
     stance: Stance = "neutral"
     summary: str = ""
     narrative_id: str = ""
+    labeled_by: str = ""         # Claude | Gemini | keywords
 
 
 class WatchAction(BaseModel):

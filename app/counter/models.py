@@ -24,7 +24,7 @@ class CounterInput(BaseModel):
     min_margin_pct: float = Field(default=30, ge=0, le=100)
     cac_share_of_profit: float = Field(default=50, ge=1, le=100, description="Max % of unit gross profit we will pay to acquire a sale")
     campaign_days: int = Field(default=30, ge=1, le=365)
-    holding_cost_pct_year: float = Field(default=25, ge=0, le=100, description="Annual carrying cost as % of unit cost (assumption, editable)")
+    holding_cost_pct_year: float = Field(default=0, ge=0, le=100, description="Annual carrying cost as % of unit cost (assumption, editable)")
     stockout_days: float = Field(default=14, ge=0, le=365, description="Under this many days of supply, never advertise")
     competitor_facts: list["CompetitorFact"] = Field(default_factory=list)
     fact_max_age_days: int = Field(default=14, ge=1, le=365)

@@ -544,7 +544,7 @@ function counterForm() {
       <div class="field" id="csv-field" ${shop.enabled ? "hidden" : ""}>
         <label for="c-csv">Inventory CSV <span class="hint">${esc((state.config.csv_fields || []).join(", "))}</span></label>
         <textarea id="c-csv" name="csv_text" rows="5" class="mono"></textarea>
-        <div class="small" style="margin-top:6px"><input type="file" id="c-file" accept=".csv,text/csv"> <button type="button" class="linkish" id="c-sample">Load fictional sample (Northpace)</button></div>
+        <div class="small" style="margin-top:6px"><input type="file" id="c-file" accept=".csv,text/csv"> <span class="muted">Upload your real inventory export (columns above), or connect Shopify.</span></div>
       </div>
       <details class="rules"><summary>Business rules</summary>
         <div class="row">
@@ -556,7 +556,7 @@ function counterForm() {
           <div class="field"><label for="c-days">Campaign length <span class="hint">days</span></label><input id="c-days" name="campaign_days" type="number" min="1" value="30"></div>
         </div>
         <div class="row">
-          <div class="field"><label for="c-hold">Holding cost <span class="hint">% of unit cost per year (assumption)</span></label><input id="c-hold" name="holding_cost_pct_year" type="number" min="0" max="100" value="25"></div>
+          <div class="field"><label for="c-hold">Holding cost <span class="hint">% of unit cost per year, from your finance team</span></label><input id="c-hold" name="holding_cost_pct_year" type="number" min="0" max="100" placeholder="your finance team's rate (optional)"></div>
           <div class="field"><label for="c-so">Stockout guard <span class="hint">never advertise under N days of supply</span></label><input id="c-so" name="stockout_days" type="number" min="0" value="14"></div>
         </div>
         <div class="field"><label for="c-land">Fallback landing URL <span class="hint">optional</span></label><input id="c-land" name="landing_url" type="url"></div>
@@ -578,11 +578,6 @@ function wireCounterForm() {
   document.getElementById("c-file").addEventListener("change", async (e) => {
     const f = e.target.files[0];
     if (f) document.getElementById("c-csv").value = await f.text();
-  });
-  document.getElementById("c-sample").addEventListener("click", async () => {
-    document.getElementById("c-csv").value = await api("/api/samples/inventory.csv");
-    if (!document.getElementById("c-ours").value) document.getElementById("c-ours").value = "Northpace";
-    if (!document.getElementById("c-cat").value) document.getElementById("c-cat").value = "running shoes";
   });
   const factsEl = document.getElementById("facts");
   const today = new Date().toISOString().slice(0, 10);
@@ -643,7 +638,7 @@ function drawCounter() {
     <div class="kpis">
       ${kpi(sm.surplus_units != null ? sm.surplus_units.toLocaleString() : "–", `surplus units in ${sm.surplus_skus ?? "–"} of ${sm.skus ?? "–"} SKUs`)}
       ${kpi(sm.impact ? money0(sm.impact.cash_tied) : "–", "cash tied up in surplus", (sm.impact?.cash_tied || 0) > 0)}
-      ${kpi(sm.impact ? money0(sm.impact.holding_cost_month) : "–", `holding cost / month (${sm.impact?.holding_pct_assumption ?? 25}%/yr assumed)`)}
+      ${kpi(sm.impact ? money0(sm.impact.holding_cost_month) : "–", sm.impact?.holding_pct_assumption ? `holding cost / month (your ${sm.impact.holding_pct_assumption}%/yr rate)` : "holding cost / month (add your rate)")}
       ${kpi(sm.verified_clusters ?? "–", "verified pain points", (sm.verified_clusters || 0) > 0)}
       ${kpi(sm.ad_packages ?? "–", "ad drafts to review")}
     </div>
@@ -673,7 +668,7 @@ function impactPanel(c) {
       <div><div class="v">${addressable.length ? money0(sum("revenue_unlocked")) : "–"}</div><div class="k">revenue if matched surplus sells</div></div>
       <div><div class="v">${addressable.length ? money0(sum("contribution_after_cac")) : "–"}</div><div class="k">gross profit after paying max CAC</div></div>
     </div>
-    <p class="small muted">Inventory arithmetic. Holding cost uses your ${imp.holding_pct_assumption}%/yr assumption. "Matched" means SKUs with an ad draft; selling it all is the ceiling, not a forecast.</p>
+    <p class="small muted">Inventory arithmetic. ${imp.holding_pct_assumption ? `Holding cost uses your ${imp.holding_pct_assumption}%/yr rate.` : "Add your holding-cost rate to see holding cost."} "Matched" means SKUs with an ad draft; selling it all is the ceiling, not a forecast.</p>
     ${imp.stockout_guard.length ? `<div class="guard"><b>Stockout guard:</b> ${imp.stockout_guard.map((g) => `${esc(g.name)} <span class="mono">(${g.days_of_inventory} d)</span>`).join(", ")} excluded from ads: they're already selling fast, and ads would push them into a stockout.</div>` : ""}
     ${(c.summary.facts_refused || []).length ? `<div class="guard warn"><b>Competitor facts refused:</b> ${c.summary.facts_refused.map(esc).join("; ")}</div>` : ""}
   </div>`;
@@ -1018,6 +1013,7 @@ function streamRow(m, fresh) {
   return `<a class="sr ${fresh ? "fresh" : ""} sev-${m.severity}" href="${safeHref(m.url)}" target="_blank" rel="noopener noreferrer">
     <div class="sr-top"><span class="plat">${esc(m.platform)}</span><span class="chip ${m.sentiment === "negative" ? "amplifies" : m.sentiment === "positive" ? "debunks" : "reports"}">${esc(m.sentiment)}</span>
       ${m.stance !== "neutral" ? `<span class="chip ${m.stance === "spreading" ? "amplifies" : "debunks"}">${esc(m.stance)}</span>` : ""}
+      ${m.labeled_by === "keywords" ? `<span class="chip unconfirmed" title="The AI model was unavailable, so this label is a keyword guess. Add ANTHROPIC_API_KEY for real reads.">keyword guess</span>` : ""}
       <span class="sr-time">${esc(ago(m.published_at || m.found_at))}</span></div>
     <div class="sr-text">${esc(m.summary || m.title || m.text.slice(0, 200))}</div>
     <div class="sr-by">${esc(m.author || m.domain || host(m.url))}${m.engagement ? ` · ${m.engagement} engagements` : ""}</div></a>`;

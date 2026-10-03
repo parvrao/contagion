@@ -163,7 +163,8 @@ async def _label_complaints(case: CounterCase) -> None:
     async def batch(rows):
         text = "\n".join(f"[{i}] ({it.platform}) {it.title} :: {it.text[:400]}".replace("\n", " ") for i, it in enumerate(rows))
         try:
-            data = await llm.complete_json(
+            with llm.fast():
+                data = await llm.complete_json(
                 "You label public posts about a product. For each item decide:\n"
                 "complaint: is it a complaint about THIS product (not the category in general)?\n"
                 f"friction: one of {FRICTIONS}\n"
@@ -479,7 +480,7 @@ def unit_economics(s, daily_budget: float, days: int) -> dict:
     be_units = math.ceil(spend / unit_profit) if spend else 0
     daily = s.units_sold_window / s.window_days if s.window_days else 0
     days_to_clear = round(s.surplus_units / daily) if daily else None
-    wait_cost = round((s.holding_cost_month or 0) * days_to_clear / 30, 2) if days_to_clear is not None else None
+    wait_cost = round(s.holding_cost_month * days_to_clear / 30, 2) if days_to_clear is not None and s.holding_cost_month is not None else None
     return {
         "unit_gross_profit": unit_profit,
         "campaign_spend": spend,

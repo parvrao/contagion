@@ -185,7 +185,7 @@ async def check_ai(w: Watch) -> None:
 
 
 async def _poll_group(w: Watch, group, plan, first: bool, now) -> int:
-    results = await asyncio.gather(*[asyncio.wait_for(s.search(plan), timeout=150) for s in group], return_exceptions=True)
+    results = await asyncio.gather(*[asyncio.wait_for(s.search(plan), timeout=90 if s.name in ("web", "youtube") else 25) for s in group], return_exceptions=True)
     seen = {norm(m.url) for m in w.mentions}
     new: list[Mention] = []
     for src, res in zip(group, results):

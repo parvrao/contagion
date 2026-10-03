@@ -89,6 +89,7 @@ def config():
         "sources": sources,
         "engines": engines,
         "profound": {"enabled": ok, "note": note},
+        "cache": __import__("app.llm", fromlist=["cache_stats"]).cache_stats(),
         "shopify": dict(zip(("enabled", "note"), counter_inventory.shopify_configured())),
         "csv_fields": counter_inventory.CSV_FIELDS,
         "presets": PRESETS,
@@ -290,11 +291,6 @@ def open_replay(name: str):
     return {"id": case.id}
 
 
-@app.get("/api/samples/inventory.csv", dependencies=[Depends(require_token)])
-def sample_inventory():
-    return PlainTextResponse((ROOT / "data" / "samples" / "inventory_sample.csv").read_text(), media_type="text/csv")
-
-
 # ---------- watch (live brand monitor) ----------
 
 def _watch_or_404(watch_id: str) -> Watch:
@@ -405,7 +401,11 @@ async def watch_trace(watch_id: str, nid: str, body: TraceBody):
     store.save(case)
     n.trace_case_id = case.id
     store.save(w)
-    _spawn(pipeline.run_case(case))
+    from .models import Item
+    seeds = [Item(platform=m.platform, url=m.url, domain=m.domain, title=m.title, text=m.text, author=m.author,
+                  published_at=m.published_at, engagement=m.engagement)
+             for m in w.mentions if m.narrative_id == n.id and m.relevant]
+    _spawn(pipeline.run_case(case, seed_items=seeds))
     return {"id": case.id}
 
 

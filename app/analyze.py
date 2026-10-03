@@ -87,7 +87,8 @@ async def _classify_batch(batch: list[Item], ci: CaseInput) -> None:
         f"[{i}] ({it.platform}) {it.title} :: {it.text[:400]}".replace("\n", " ") for i, it in enumerate(batch)
     )
     try:
-        data = await llm.complete_json(
+        with llm.fast():
+            data = await llm.complete_json(
             STANCE_SYSTEM,
             f"Brand: {ci.brand}\nRumor: {ci.claim}\nBrand's position: {ci.truth}\n\nItems:\n{rows}\n\n"
             'Return [{"i": index, "stance": label, "reason": "max 15 words"}] for every item.',
@@ -124,8 +125,9 @@ async def skeptic(items: list[Item], ci: CaseInput) -> int:
             it.confirmed = True
         return 0
     overturned = 0
-    for start in range(0, len(targets), BATCH):
-        batch = targets[start : start + BATCH]
+    import asyncio
+
+    async def review(batch):
         rows = "\n".join(f"[{i}] {it.title} :: {it.text[:400]}".replace("\n", " ") for i, it in enumerate(batch))
         try:
             data = await llm.complete_json(
@@ -151,7 +153,11 @@ async def skeptic(items: list[Item], ci: CaseInput) -> int:
             else:
                 it.stance = "reports"
                 it.stance_reason = f"overturned by skeptic: {v.get('reason', '')}"[:160]
-                overturned += 1
+                flips.append(it)
+    flips: list = []
+    batches = [targets[k:k + BATCH] for k in range(0, len(targets), BATCH)]
+    await asyncio.gather(*[review(b) for b in batches])
+    overturned = len(flips)
     return overturned
 
 
@@ -165,7 +171,8 @@ async def judge_probe(p: Probe, ci: CaseInput) -> None:
         p.verdict, p.verdict_reason = "unaware", "no model available to judge"
         return
     try:
-        data = await llm.complete_json(
+        with llm.fast():
+            data = await llm.complete_json(
             "You audit an AI assistant's answer for whether it repeats a rumor about a brand.\n"
             "repeats = states or implies the rumor is true, or presents it without the correction.\n"
             "corrects = mentions the rumor and gives the brand's correction or says it is false/misleading.\n"
