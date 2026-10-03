@@ -222,7 +222,7 @@ def export_csv(case_id: str):
     if getattr(case, "mode", "defend") == "counter":
         # Starting point for an ad-platform bulk import: map columns in the importer. Status is always PAUSED.
         w.writerow(["Campaign Name", "Ad Set Name", "Ad Name", "Status", "Daily Budget (suggested)", "Headline",
-                    "Primary Text", "Call to Action", "Website URL", "Audience Ideas", "SKU", "Approved Copy", "Approved At"])
+                    "Primary Text", "Call to Action", "Website URL", "Audience Ideas", "SKU", "Comparison Substantiation", "Approved Copy", "Approved At"])
         for a in case.actions:
             if a.status != "approved":
                 continue
@@ -233,7 +233,8 @@ def export_csv(case_id: str):
             aud = re.search(r"AUDIENCE IDEAS: (.*)", final)
             w.writerow([f"Counter {case.input.our_brand} {m.get('friction', '')}".strip(), f"{m.get('sku')} {m.get('friction', '')}",
                         a.title, "PAUSED", m.get("suggested_daily_budget", ""), head[0], " ".join(body),
-                        m.get("cta", ""), a.target_url, aud.group(1) if aud else "", m.get("sku"), final, a.decided_at])
+                        m.get("cta", ""), a.target_url, aud.group(1) if aud else "", m.get("sku"),
+                        " | ".join(m.get("substantiation") or []), final, a.decided_at])
     else:
         w.writerow(["kind", "platform", "target_url", "title", "approved_text", "approved_at", "reviewer_note"])
         for a in case.actions:

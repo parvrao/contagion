@@ -44,6 +44,8 @@ class Item(BaseModel):
     published_at: str = ""      # ISO 8601, may be empty when the source gives no date
     date_source: str = "platform"  # platform | search index | model-reported
     engagement: int = 0         # upvotes / points / comments, whatever the source exposes
+    views: int = 0              # when the platform exposes it (YouTube)
+    comments: int = 0
     outbound_links: list[str] = Field(default_factory=list)
     query: str = ""
     stance: Stance = "unknown"

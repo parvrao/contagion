@@ -39,4 +39,23 @@ class YouTubeSource(Source):
                     title=s.get("title", ""), text=s.get("description", "")[:600],
                     author=s.get("channelTitle", ""), published_at=s.get("publishedAt", ""), query=q,
                 )
+        await self._stats(list(items.values()))
         return list(items.values())
+
+    async def _stats(self, items: list[Item]) -> None:
+        """views / comments / likes for comment-to-view ratios (videos.list, 1 quota unit per call)."""
+        ids = {i.url.split("v=")[-1]: i for i in items}
+        keys = list(ids)
+        for start in range(0, len(keys), 50):
+            try:
+                data = await http.get_json("https://www.googleapis.com/youtube/v3/videos", params={
+                    "part": "statistics", "id": ",".join(keys[start:start + 50]), "key": settings.youtube_api_key})
+            except Exception:
+                return  # stats are a bonus; search results still count
+            for v in data.get("items", []):
+                it, st = ids.get(v.get("id")), v.get("statistics", {})
+                if not it:
+                    continue
+                it.views = int(st.get("viewCount", 0))
+                it.comments = int(st.get("commentCount", 0))
+                it.engagement = it.comments + int(st.get("likeCount", 0))

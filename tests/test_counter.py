@@ -163,3 +163,82 @@ def test_number_guard_uses_whole_numbers():
     from app.respond import numbers_in
     assert "1" not in numbers_in("price 130")
     assert "130" in numbers_in("price 130.00")
+
+
+def test_dollar_impact_and_stockout_guard():
+    skus = inventory.load_csv(SAMPLE)
+    inp = ci(stockout_days=20)
+    inventory.apply_rules(skus, inp)
+    by = {s.sku: s for s in skus}
+    storm = by["NP-STORM-01"]
+    assert storm.cash_tied == storm.surplus_units * 47
+    assert storm.holding_cost_month == round(storm.cash_tied * 0.25 / 12, 2)
+    assert by["NP-DAILY-03"].stockout_risk and "do not advertise" in by["NP-DAILY-03"].flag_reason
+    imp = inventory.impact(skus, inp)
+    assert imp["stockout_guard"][0]["sku"] == "NP-DAILY-03"
+    assert imp["cash_tied"] == round(sum(s.cash_tied for s in skus if s.flagged), 2)
+
+
+def test_spike_uses_window_end_for_historical_runs(monkeypatch):
+    fake_llm(monkeypatch)
+    until = (NOW - timedelta(days=1)).strftime("%Y-%m-%d")
+    case = run(monkeypatch, until=until)
+    qd = next(c for c in case.clusters if c.friction == "quality defect")
+    assert qd.recent_7d == 5 and qd.baseline_week == 0 and qd.new_signal and not qd.spiking
+    assert qd.engagement_spike is None
+
+
+def test_competitor_facts_freshness_and_guard(monkeypatch):
+    from app.counter.models import CompetitorFact
+    today = NOW.strftime("%Y-%m-%d")
+    fresh = CompetitorFact(fact="list price", value="$180", source_url="https://shop.example.com/aquadash", checked_on=today)
+    stale = CompetitorFact(fact="weight", value="310 g", source_url="https://x.example.com", checked_on="2025-01-01")
+    inp = ci(competitor_facts=[fresh, stale])
+    ok, problems = engine.usable_facts(inp)
+    assert [f["value"] for f in ok] == ["$180"] and "re-check" in problems[0]
+    skus = inventory.load_csv(SAMPLE)
+    storm = next(s for s in skus if s.sku == "NP-STORM-01")
+    assert engine.guard_ad("Paying $180 for wet socks? $130 and sealed.", inp, storm) == []
+    assert engine.guard_ad("Paying $200 for wet socks?", inp, storm)
+
+
+def test_brief_is_attached_and_sent(monkeypatch):
+    fake_llm(monkeypatch)
+    seen = {}
+    orig = llm.complete_json
+
+    async def spy(system, user, max_tokens=0):
+        if "paid social ad drafts" in system:
+            seen["user"] = user
+        return await orig(system, user, max_tokens)
+
+    monkeypatch.setattr(llm, "complete_json", spy)
+    case = run(monkeypatch)
+    brief = case.actions[0].meta["brief"]
+    assert brief["candidate_sku"]["verbatim_strength"] == "seam-sealed membrane upper"
+    assert brief["competitor_weakness"]["first_hand"] == 5
+    assert '"verbatim_strength": "seam-sealed membrane upper"' in seen["user"]
+    assert case.summary["impact"]["cash_tied"] > 0
+
+
+def test_spike_against_real_baseline(monkeypatch):
+    fake_llm(monkeypatch)
+
+    class WithBaseline(Source):
+        name = platform = "Reddit"
+
+        async def search(self, plan):
+            rows = [Item(platform=p, url=f"https://ex.com/n{i}", title=f"my AquaDash leaked #{i}",
+                         published_at=(NOW - timedelta(days=1)).isoformat(), engagement=50)
+                    for i, p in enumerate(["Reddit", "YouTube", "Bluesky", "Reddit", "Reddit", "YouTube", "Reddit", "Bluesky"])]
+            rows += [Item(platform="Reddit", url=f"https://ex.com/o{i}", title=f"my AquaDash leaked old #{i}",
+                          published_at=(NOW - timedelta(days=20)).isoformat(), engagement=10) for i in range(4)]
+            return rows
+
+    monkeypatch.setattr(engine, "all_sources", lambda: [WithBaseline()])
+    case = CounterCase(input=ci())
+    asyncio.run(engine.run_counter(case))
+    qd = next(c for c in case.clusters if c.friction == "quality defect")
+    assert qd.baseline_week == 1.0 and qd.recent_7d == 8
+    assert qd.spike == 4.5 and qd.spiking and not qd.new_signal
+    assert qd.engagement_spike == 40.0     # 400 this week vs 10/week baseline

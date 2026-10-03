@@ -555,7 +555,16 @@ function counterForm() {
           <div class="field"><label for="c-cac">Max CAC <span class="hint">% of unit gross profit</span></label><input id="c-cac" name="cac_share_of_profit" type="number" min="1" max="100" value="50"></div>
           <div class="field"><label for="c-days">Campaign length <span class="hint">days</span></label><input id="c-days" name="campaign_days" type="number" min="1" value="30"></div>
         </div>
+        <div class="row">
+          <div class="field"><label for="c-hold">Holding cost <span class="hint">% of unit cost per year (assumption)</span></label><input id="c-hold" name="holding_cost_pct_year" type="number" min="0" max="100" value="25"></div>
+          <div class="field"><label for="c-so">Stockout guard <span class="hint">never advertise under N days of supply</span></label><input id="c-so" name="stockout_days" type="number" min="0" value="14"></div>
+        </div>
         <div class="field"><label for="c-land">Fallback landing URL <span class="hint">optional</span></label><input id="c-land" name="landing_url" type="url"></div>
+      </details>
+      <details class="rules"><summary>Verified competitor facts <span class="hint">optional, for price or spec comparisons</span></summary>
+        <p class="small muted" style="margin:0 0 10px">Only facts with a source and a check date from the last 14 days can appear in ad copy, and only with the exact value you enter. Leave empty for no comparisons.</p>
+        <div id="facts"></div>
+        <button type="button" class="btn secondary small" id="add-fact">Add fact</button>
       </details>
       <div id="form-error"></div>
       <div class="row-end"><button class="btn" type="submit">Find openings</button></div>
@@ -575,10 +584,25 @@ function wireCounterForm() {
     if (!document.getElementById("c-ours").value) document.getElementById("c-ours").value = "Northpace";
     if (!document.getElementById("c-cat").value) document.getElementById("c-cat").value = "running shoes";
   });
+  const factsEl = document.getElementById("facts");
+  const today = new Date().toISOString().slice(0, 10);
+  document.getElementById("add-fact").addEventListener("click", () => {
+    const row = document.createElement("div");
+    row.className = "fact-row";
+    row.innerHTML = `<input placeholder="Fact: list price" data-k="fact" maxlength="200">
+      <input placeholder="Value: $180" data-k="value" maxlength="120">
+      <input placeholder="Source URL" data-k="source_url" type="url">
+      <input type="date" data-k="checked_on" value="${today}">
+      <button type="button" class="linkish" aria-label="Remove fact">Remove</button>`;
+    row.querySelector("button").addEventListener("click", () => row.remove());
+    factsEl.appendChild(row);
+  });
   form.addEventListener("submit", async (e) => {
     e.preventDefault();
-    const body = Object.fromEntries(new FormData(form).entries());
-    for (const k of ["dir_threshold_days", "min_margin_pct", "cac_share_of_profit", "campaign_days"]) body[k] = Number(body[k]);
+    const body = Object.fromEntries([...new FormData(form).entries()].filter(([k]) => !k.startsWith("fact")));
+    for (const k of ["dir_threshold_days", "min_margin_pct", "cac_share_of_profit", "campaign_days", "holding_cost_pct_year", "stockout_days"]) body[k] = Number(body[k]);
+    body.competitor_facts = [...factsEl.querySelectorAll(".fact-row")].map((r) => Object.fromEntries([...r.querySelectorAll("input")].map((i) => [i.dataset.k, i.value.trim()])))
+      .filter((f) => f.fact || f.value || f.source_url);
     const btn = form.querySelector("button[type=submit]");
     btn.disabled = true; btn.textContent = "Starting...";
     try {
@@ -592,6 +616,7 @@ function wireCounterForm() {
   });
 }
 
+const money0 = (v) => (v === null || v === undefined ? "–" : `$${Math.round(Number(v)).toLocaleString()}`);
 const money = (v) => (v === null || v === undefined ? "–" : `$${Number(v).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`);
 
 function drawCounter() {
@@ -616,9 +641,9 @@ function drawCounter() {
     </div>
     <div class="stepper" id="stepper"></div>
     <div class="kpis">
-      ${kpi(sm.surplus_skus ?? "–", `surplus SKUs of ${sm.skus ?? "–"}`)}
-      ${kpi(sm.surplus_units != null ? sm.surplus_units.toLocaleString() : "–", "units above target supply")}
-      ${kpi(sm.complaints ?? "–", "complaints found")}
+      ${kpi(sm.surplus_units != null ? sm.surplus_units.toLocaleString() : "–", `surplus units in ${sm.surplus_skus ?? "–"} of ${sm.skus ?? "–"} SKUs`)}
+      ${kpi(sm.impact ? money0(sm.impact.cash_tied) : "–", "cash tied up in surplus", (sm.impact?.cash_tied || 0) > 0)}
+      ${kpi(sm.impact ? money0(sm.impact.holding_cost_month) : "–", `holding cost / month (${sm.impact?.holding_pct_assumption ?? 25}%/yr assumed)`)}
       ${kpi(sm.verified_clusters ?? "–", "verified pain points", (sm.verified_clusters || 0) > 0)}
       ${kpi(sm.ad_packages ?? "–", "ad drafts to review")}
     </div>
@@ -635,17 +660,36 @@ function drawCounter() {
   drawTabBody();
 }
 
+function impactPanel(c) {
+  const imp = c.summary?.impact;
+  if (!imp) return "";
+  const matched = new Set(c.matches.map((m) => m.sku));
+  const addressable = c.skus.filter((s) => matched.has(s.sku));
+  const sum = (k) => addressable.reduce((a, s) => a + (s[k] || 0), 0);
+  return `<div class="panel"><h3>What the surplus costs, and what these drafts could move</h3>
+    <div class="impact">
+      <div><div class="v">${money0(imp.cash_tied)}</div><div class="k">cash tied up in all surplus</div></div>
+      <div><div class="v">${money0(imp.holding_cost_month)}</div><div class="k">holding cost per month</div></div>
+      <div><div class="v">${addressable.length ? money0(sum("revenue_unlocked")) : "–"}</div><div class="k">revenue if matched surplus sells</div></div>
+      <div><div class="v">${addressable.length ? money0(sum("contribution_after_cac")) : "–"}</div><div class="k">gross profit after paying max CAC</div></div>
+    </div>
+    <p class="small muted">Inventory arithmetic. Holding cost uses your ${imp.holding_pct_assumption}%/yr assumption. "Matched" means SKUs with an ad draft; selling it all is the ceiling, not a forecast.</p>
+    ${imp.stockout_guard.length ? `<div class="guard"><b>Stockout guard:</b> ${imp.stockout_guard.map((g) => `${esc(g.name)} <span class="mono">(${g.days_of_inventory} d)</span>`).join(", ")} excluded from ads: they're already selling fast, and ads would push them into a stockout.</div>` : ""}
+    ${(c.summary.facts_refused || []).length ? `<div class="guard warn"><b>Competitor facts refused:</b> ${c.summary.facts_refused.map(esc).join("; ")}</div>` : ""}
+  </div>`;
+}
+
 function tabOpps() {
   const c = current;
-  if (!c.clusters.length) return `<p class="muted">${c.status === "done" ? "No complaints about this product were found in public sources." : "Listening..."}</p>`;
+  if (!c.clusters.length) return impactPanel(c) + `<p class="muted">${c.status === "done" ? "No complaints about this product were found in public sources." : "Listening..."}</p>`;
   const skuBy = Object.fromEntries(c.skus.map((s) => [s.sku, s]));
-  return c.clusters.map((cl) => {
+  return impactPanel(c) + `<h3 style="margin:8px 0 10px">Competitor pain points</h3>` + c.clusters.map((cl) => {
     const matches = c.matches.filter((m) => m.cluster_id === cl.id);
     const trend = cl.recent_7d || cl.prior_7d ? `${cl.recent_7d} in last 7 d vs ${cl.prior_7d} prior` : "no recent dated posts";
     return `<div class="opp card">
       <div class="opp-head">
-        <div><h2>${esc(cl.friction)}</h2><div class="small muted">${cl.mentions} mention(s) · ${cl.first_hand} first-hand · ${esc(cl.platforms.join(", "))} · ${esc(trend)}</div></div>
-        <span class="chip ${cl.reality === "verified" ? "debunks" : cl.reality === "disputed" ? "amplifies" : "unknown"}">${esc(cl.reality)}</span>
+        <div><h2>${esc(cl.friction)}</h2><div class="small muted">${cl.mentions} mention(s) · ${cl.first_hand} first-hand · ${esc(cl.platforms.join(", "))} · ${esc(trend)} · ${cl.baseline_week}/wk baseline${cl.comment_to_view != null ? ` · YouTube comment-to-view ${(cl.comment_to_view * 100).toFixed(2)}%` : ""}</div></div>
+        <span>${cl.spiking ? `<span class="chip amplifies" title="last 7 days vs weekly baseline (days 8 to 35)">spiking ${cl.spike}x</span> ` : cl.new_signal ? `<span class="chip amplifies" title="3+ mentions this week, none in the prior 4 weeks">new this week</span> ` : ""}<span class="chip ${cl.reality === "verified" ? "debunks" : cl.reality === "disputed" ? "amplifies" : "unknown"}">${esc(cl.reality)}</span></span>
       </div>
       <div class="small muted" style="margin:6px 0 10px">${esc(cl.reality_reason)}</div>
       <ul class="quotes">${cl.quotes.map((q) => `<li><span>"${esc(q.text)}"</span> <a href="${safeHref(q.url)}" target="_blank" rel="noopener">${esc(q.platform)}</a>${q.first_hand ? "" : ` <span class="muted small">(second-hand)</span>`}</li>`).join("")}</ul>
@@ -663,13 +707,14 @@ function tabInventory() {
   const c = current;
   if (!c.skus.length) return `<p class="muted">${c.status === "failed" ? "Inventory didn't load. See the error above." : "Loading inventory..."}</p>`;
   const rows = [...c.skus].sort((a, b) => b.flagged - a.flagged || (b.surplus_units - a.surplus_units));
-  return `<table><thead><tr><th>SKU</th><th>Product</th><th class="num">On hand</th><th class="num">Sold / wk</th><th class="num">Days of supply</th><th class="num">Price</th><th class="num">Margin</th><th class="num">Max CAC</th><th class="num">Surplus units</th><th>Rule</th></tr></thead>
+  return `<table><thead><tr><th>SKU</th><th>Product</th><th class="num">On hand</th><th class="num">Sold / wk</th><th class="num">Days of supply</th><th class="num">Price</th><th class="num">Margin</th><th class="num">Max CAC</th><th class="num">Surplus units</th><th class="num">Cash tied</th><th class="num">Holding / mo</th><th>Rule</th></tr></thead>
     <tbody>${rows.map((s) => `<tr>
       <td class="mono">${esc(s.sku)}</td><td>${esc(s.name)}${s.variant ? ` <span class="muted">${esc(s.variant)}</span>` : ""}</td>
       <td class="num">${s.units_on_hand}</td><td class="num">${s.weekly_velocity}</td>
       <td class="num">${s.days_of_inventory == null ? "no sales" : s.days_of_inventory}</td><td class="num">${money(s.price)}</td>
       <td class="num">${s.margin_pct == null ? "–" : `${s.margin_pct}%`}</td><td class="num">${money(s.max_cac)}</td><td class="num">${s.surplus_units}</td>
-      <td><span class="chip ${s.flagged ? "debunks" : "unknown"}">${s.flagged ? "surplus" : "skip"}</span> <span class="small muted">${esc(s.flag_reason)}</span></td></tr>`).join("")}</tbody></table>
+      <td class="num">${money0(s.cash_tied)}</td><td class="num">${money0(s.holding_cost_month)}</td>
+      <td><span class="chip ${s.flagged ? "debunks" : s.stockout_risk ? "amplifies" : "unknown"}">${s.flagged ? "surplus" : s.stockout_risk ? "stockout guard" : "skip"}</span> <span class="small muted">${esc(s.flag_reason)}</span></td></tr>`).join("")}</tbody></table>
     <p class="small muted">Days of supply = on hand / average daily sales over the window. Max CAC = (price - unit cost) x your CAC share. All arithmetic, no model.</p>`;
 }
 
@@ -685,7 +730,9 @@ function tabComplaints() {
 
 function adMeta(m) {
   if (!m) return "";
-  return `<div class="admeta">
+  const subst = (m.substantiation || []).length ? `<div class="small" style="margin:-4px 0 10px"><b>Comparison backed by:</b> ${m.substantiation.map(esc).join("; ")}</div>` : "";
+  const brief = m.brief ? `<details class="brief"><summary>What the model saw (structured brief)</summary><pre>${esc(JSON.stringify(m.brief, null, 2))}</pre></details>` : "";
+  return subst + brief + `<div class="admeta">
     <span><b>${esc(m.sku)}</b></span><span>${m.units_on_hand} on hand</span><span>${m.surplus_units} surplus</span>
     <span>${m.days_of_inventory == null ? "no recent sales" : `${m.days_of_inventory} days of supply`}</span>
     <span>margin ${m.margin_pct}%</span><span>max CAC ${money(m.max_cac)}</span>

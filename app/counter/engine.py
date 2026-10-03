@@ -84,6 +84,11 @@ async def stage_inventory(case: CounterCase) -> None:
     inventory.apply_rules(case.skus, ci)
     flagged = [s for s in case.skus if s.flagged]
     case.summary.update(skus=len(case.skus), surplus_skus=len(flagged), surplus_units=sum(s.surplus_units for s in flagged))
+    case.summary["impact"] = inventory.impact(case.skus, ci)
+    imp = case.summary["impact"]
+    if imp["stockout_guard"]:
+        _log(case, "inventory", f"Stockout guard: {len(imp['stockout_guard'])} fast mover(s) excluded from ads ("
+                                + ", ".join(x["sku"] for x in imp["stockout_guard"]) + ")")
     _log(case, "inventory", f"{len(case.skus)} SKUs loaded; {len(flagged)} flagged as surplus with margin room "
                             f"({case.summary['surplus_units']} units above the {ci.dir_threshold_days:g}-day target)")
     if not flagged:
@@ -188,8 +193,18 @@ async def _label_complaints(case: CounterCase) -> None:
     await asyncio.gather(*[batch(rows[i:i + 20]) for i in range(0, len(rows), 20)])
 
 
+def _reference_time(ci) -> datetime:
+    """'Now' for spike math: the end of the analysis window if one is set (historical demos), else now."""
+    if ci.until:
+        try:
+            return datetime.strptime(ci.until, "%Y-%m-%d").replace(tzinfo=timezone.utc) + timedelta(days=1)
+        except ValueError:
+            pass
+    return datetime.now(timezone.utc)
+
+
 def _cluster(case: CounterCase) -> list[Cluster]:
-    now = datetime.now(timezone.utc)
+    now = _reference_time(case.input)
     groups = defaultdict(list)
     for it in case.items:
         if it.stance == "amplifies":
@@ -200,20 +215,35 @@ def _cluster(case: CounterCase) -> list[Cluster]:
                     first_hand=sum(1 for i in items if i.confirmed),
                     platforms=sorted({i.platform for i in items}),
                     engagement=sum(i.engagement for i in items))
+        recent_eng = base_eng = base_n = 0
         for i in items:
             try:
                 age = now - datetime.fromisoformat(i.published_at.replace("Z", "+00:00"))
             except ValueError:
                 continue
+            if age < timedelta(0):
+                continue
             if age <= timedelta(days=7):
                 c.recent_7d += 1
-            elif age <= timedelta(days=14):
-                c.prior_7d += 1
+                recent_eng += i.engagement
+            elif age <= timedelta(days=35):
+                base_n += 1
+                base_eng += i.engagement
+                if age <= timedelta(days=14):
+                    c.prior_7d += 1
+        c.baseline_week = round(base_n / 4, 2)
+        c.spike = round((c.recent_7d + 1) / (c.baseline_week + 1), 2)
+        c.engagement_spike = round(recent_eng / (base_eng / 4), 2) if base_eng else None
+        c.new_signal = c.recent_7d >= 3 and base_n == 0
+        c.spiking = c.recent_7d >= 3 and base_n > 0 and (c.spike >= 2 or (c.engagement_spike or 0) >= 3)
+        yt = [i for i in items if i.platform == "YouTube" and i.views]
+        if yt:
+            c.comment_to_view = round(sum(i.comments for i in yt) / sum(i.views for i in yt), 5)
         top = sorted(items, key=lambda i: (not i.confirmed, -i.engagement))[:4]
         c.quotes = [{"text": i.quote or (i.title or i.text)[:200],
                      "url": i.url, "platform": i.platform, "first_hand": i.confirmed} for i in top]
         out.append(c)
-    out.sort(key=lambda c: (-c.first_hand, -c.mentions))
+    out.sort(key=lambda c: (-(c.spiking or c.new_signal), -c.first_hand, -c.mentions))
     return out
 
 
@@ -240,6 +270,55 @@ async def stage_reality(case: CounterCase) -> None:
     store.save(case)
 
 
+# ---------- competitor facts ----------
+
+def usable_facts(ci, today: datetime | None = None) -> tuple[list[dict], list[str]]:
+    """Facts with a source and a recent check date. Stale or undated facts are refused, not silently used."""
+    today = today or datetime.now(timezone.utc)
+    ok, problems = [], []
+    for f in ci.competitor_facts:
+        try:
+            checked = datetime.strptime(f.checked_on, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+        except ValueError:
+            problems.append(f"'{f.fact}': bad date {f.checked_on}")
+            continue
+        age = (today - checked).days
+        if age > ci.fact_max_age_days:
+            problems.append(f"'{f.fact}' checked {age} days ago (max {ci.fact_max_age_days}); re-check before using")
+        elif not f.source_url.startswith(("http://", "https://")):
+            problems.append(f"'{f.fact}': source must be a URL")
+        else:
+            ok.append(f.model_dump())
+    return ok, problems
+
+
+def build_brief(case: CounterCase, c: Cluster, s, m: Match, facts: list[dict]) -> dict:
+    """The structured payload the drafting model receives. Shown verbatim in the UI."""
+    ci = case.input
+    return {
+        "competitor_weakness": {
+            "friction": c.friction, "reality": c.reality, "why": c.reality_reason,
+            "mentions": c.mentions, "first_hand": c.first_hand, "platforms": c.platforms,
+            "last_7_days": c.recent_7d, "baseline_per_week": c.baseline_week, "spike": c.spike,
+            "engagement_spike": c.engagement_spike, "new_this_week": c.new_signal, "comment_to_view": c.comment_to_view,
+            "customer_quotes": [q["text"] for q in c.quotes[:3]],
+        },
+        "candidate_sku": {
+            "sku": s.sku, "name": f"{s.name} {s.variant}".strip(), "price": s.price,
+            "units_on_hand": s.units_on_hand, "surplus_units": s.surplus_units,
+            "days_of_supply": s.days_of_inventory, "margin_pct": s.margin_pct, "max_cac": s.max_cac,
+            "verbatim_strength": m.evidence, "product_copy": s.description,
+        },
+        "verified_competitor_facts": facts,
+        "rules": {
+            "no_competitor_names_or_trademarks": True,
+            "product_claims_only_from": "candidate_sku.product_copy",
+            "comparisons_only_from": "verified_competitor_facts (exact values)",
+            "no_other_numbers": True,
+        },
+    }
+
+
 # ---------- 4. Match & draft ----------
 
 async def stage_drafting(case: CounterCase) -> None:
@@ -249,7 +328,17 @@ async def stage_drafting(case: CounterCase) -> None:
     if not clusters or not skus:
         _log(case, "drafting", "Nothing to draft: needs at least one verified cluster and one surplus SKU.", "warn")
         return
+    facts, problems = usable_facts(case.input)
+    for p in problems:
+        _log(case, "drafting", f"Competitor fact refused: {p}", "warn")
+    if facts:
+        _log(case, "drafting", f"{len(facts)} verified competitor fact(s) available for comparison copy")
+    case.summary["facts_used"], case.summary["facts_refused"] = len(facts), problems
     case.matches = await _match(case, clusters, skus)
+    for m in case.matches:
+        cl = next(x for x in clusters if x.id == m.cluster_id)
+        sk = next(x for x in skus if x.sku == m.sku)
+        m.brief = build_brief(case, cl, sk, m, facts)
     _log(case, "drafting", f"{len(case.matches)} cluster-to-SKU match(es) backed by the SKU's own description")
     for m in case.matches[:6]:
         action = await _draft(case, m)
@@ -299,16 +388,16 @@ async def _draft(case: CounterCase, m: Match) -> Action | None:
     ci = case.input
     c = next(x for x in case.clusters if x.id == m.cluster_id)
     s = next(x for x in case.skus if x.sku == m.sku)
-    facts = f"Name: {s.name} {s.variant}\nPrice: {s.price:g}\nDescription: {s.description}"
+    import json as _json
     try:
         data = await llm.complete_json(
-            "You write paid social ad drafts. Rules: never name or allude to the competitor brand or product by name, "
-            "logo or trademark; never claim anything about the competitor; speak to the customer's frustration in general "
-            "terms. Product claims may ONLY come from the product facts given. No numbers that aren't in the facts. "
-            "Bold, plain, specific; no cliches like 'game-changer' or 'elevate'.",
-            f"Our brand: {ci.our_brand}\nCategory: {ci.category}\nCustomer frustration ({c.friction}): "
-            + " / ".join(q["text"] for q in c.quotes[:3])
-            + f"\nOur product facts:\n{facts}\nMatched strength (verbatim): {m.evidence}\n\n"
+            "You write paid social ad drafts from a structured brief. Rules: never name or allude to the competitor brand "
+            "or product by name, logo or trademark. Product claims may ONLY come from candidate_sku.product_copy. "
+            "Comparisons (e.g. price) may ONLY use verified_competitor_facts, with the exact value, phrased generically "
+            "(e.g. 'paying $180 for wet socks?'); if there are none, make no comparisons and no claims about competitors. "
+            "No other numbers. Speak to the customer's frustration in their own words. Bold, plain, specific; "
+            "no cliches like 'game-changer' or 'elevate'.",
+            f"Our brand: {ci.our_brand}\nCategory: {ci.category}\n\nBRIEF (JSON):\n{_json.dumps(m.brief, indent=1)}\n\n"
             'Return {"hooks": [3 short], "headlines": [3, max 40 chars], "body": "max 125 chars", '
             '"cta": "one of Shop Now, Learn More, Get Offer", "audience_ideas": [3 interest/behavior ideas, no competitor brand names]}',
             max_tokens=800,
@@ -329,6 +418,7 @@ async def _draft(case: CounterCase, m: Match) -> Action | None:
         + f"\nLANDING: {s.url or ci.landing_url or '[add landing URL]'}"
     )
     flags = guard_ad(text, ci, s)
+    used_facts = [f for f in m.brief.get("verified_competitor_facts", []) if f["value"] in text]
     return Action(
         kind="ad_package",
         title=f"{s.name} {s.variant}".strip() + f" vs. {c.friction} complaints",
@@ -343,6 +433,9 @@ async def _draft(case: CounterCase, m: Match) -> Action | None:
             "budget_note": f"{s.surplus_units} surplus units / {ci.campaign_days} days x max CAC {s.max_cac}, capped at 500. Heuristic: set the real budget yourself.",
             "cta": data.get("cta", "Shop Now"), "headlines": heads, "body": data.get("body", ""),
             "baseline_daily_sales": round(daily, 2),
+            "brief": m.brief,
+            "substantiation": [f"{f['fact']}: {f['value']} ({f['source_url']}, checked {f['checked_on']})" for f in used_facts],
+            "spike": c.spike, "spiking": c.spiking,
         },
     )
 
@@ -359,8 +452,9 @@ def guard_ad(text: str, ci, s) -> list[str]:
                     and word.lower() not in (ci.category or "").lower():
                 flags.append(f"mentions competitor term '{word}': remove (trademark / comparative-ad risk)")
     from ..respond import numbers_in
-    allowed = numbers_in(f"{s.name} {s.variant} {s.description} {s.price:g} {s.price:.2f}")
+    facts, _ = usable_facts(ci)
+    allowed = numbers_in(f"{s.name} {s.variant} {s.description} {s.price:g} {s.price:.2f} " + " ".join(f["value"] for f in facts))
     for num in set(re.findall(r"\d+(?:[.,]\d+)?%?", no_urls)):
         if num.rstrip("%") not in allowed:
-            flags.append(f"number '{num}' is not in the product data: verify or remove")
+            flags.append(f"number '{num}' is not in the product data or verified competitor facts: verify or remove")
     return sorted(set(flags))

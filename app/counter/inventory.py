@@ -189,10 +189,19 @@ def apply_rules(skus: list[Sku], ci: CounterInput) -> None:
             s.max_cac = round(max(profit, 0) * ci.cac_share_of_profit / 100, 2)
         target_units = daily * ci.dir_threshold_days
         s.surplus_units = max(0, int(s.units_on_hand - target_units))
+        s.stockout_risk = s.days_of_inventory is not None and s.days_of_inventory < ci.stockout_days
+        s.revenue_unlocked = round(s.surplus_units * s.price, 2)
+        if s.unit_cost is not None:
+            s.cash_tied = round(s.surplus_units * s.unit_cost, 2)
+            s.holding_cost_month = round(s.cash_tied * ci.holding_cost_pct_year / 100 / 12, 2)
+            s.contribution_after_cac = round(s.surplus_units * (s.price - s.unit_cost - (s.max_cac or 0)), 2)
 
         reasons, ok = [], True
         if s.units_on_hand <= 0:
             ok, reasons = False, ["out of stock"]
+        elif s.stockout_risk:
+            ok = False
+            reasons.append(f"stockout risk: {s.days_of_inventory:g} days of supply, do not advertise")
         elif s.days_of_inventory is not None and s.days_of_inventory <= ci.dir_threshold_days:
             ok = False
             reasons.append(f"{s.days_of_inventory:g} days of supply (at or under {ci.dir_threshold_days:g})")
@@ -207,3 +216,17 @@ def apply_rules(skus: list[Sku], ci: CounterInput) -> None:
         else:
             reasons.append(f"margin {s.margin_pct:g}%")
         s.flagged, s.flag_reason = ok, "; ".join(reasons)
+
+
+def impact(skus: list[Sku], ci: CounterInput) -> dict:
+    """Dollar view of the surplus. Arithmetic on inventory data plus one stated assumption (holding %)."""
+    flagged = [s for s in skus if s.flagged]
+    tot = lambda attr: round(sum((getattr(s, attr) or 0) for s in flagged), 2)
+    return {
+        "cash_tied": tot("cash_tied"),
+        "holding_cost_month": tot("holding_cost_month"),
+        "revenue_unlocked": tot("revenue_unlocked"),
+        "contribution_after_cac": tot("contribution_after_cac"),
+        "holding_pct_assumption": ci.holding_cost_pct_year,
+        "stockout_guard": [{"sku": s.sku, "name": s.name, "days_of_inventory": s.days_of_inventory} for s in skus if s.stockout_risk],
+    }

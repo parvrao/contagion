@@ -32,6 +32,13 @@ Then **Re-check** re-asks the AI engines later and records the grade history.
 | 03 Reality check | A cluster is **verified** only with 3+ first-hand reports on 2+ platforms. Rumor-led clusters are **disputed** and never used: advertising against a false claim about a competitor is a false-advertising risk. |
 | 04 Match & draft | Verified pain point x surplus SKU, only when the SKU's own description answers it (evidence must be a verbatim substring). Ad package: hooks, headlines, body, CTA, audience ideas, suggested daily budget (heuristic, capped). |
 
+Also in Counter:
+- **Dollar impact:** cash tied up in surplus, monthly holding cost (your stated %/yr assumption), revenue and gross profit after max CAC for SKUs that got an ad draft. Arithmetic only.
+- **Stockout guard:** SKUs under N days of supply are never advertised.
+- **Spike score:** last 7 days vs. a 4-week baseline (days 8 to 35), by mentions and by engagement; "new this week" when there's no baseline. YouTube comment-to-view ratio when `YOUTUBE_API_KEY` is set. Historical runs measure from the end of the date window.
+- **Verified competitor facts:** fact + exact value + source URL + check date (max 14 days old). Only those values may appear in comparison copy; they're listed as substantiation in the export.
+- **Structured brief:** the exact JSON the drafting model receives is shown on every ad card.
+
 Guardrails: competitor names/products in copy **block approval** until edited; numbers not in the product data are flagged; edited text is re-checked on approval. Approved packages export as a bulk-import CSV with status **PAUSED**. Nothing is published and no money is spent from the tool.
 
 Sample data: `data/samples/` has a fictional brand ("Northpace") as Counter CSV and as a Shopify product import file.

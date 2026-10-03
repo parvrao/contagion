@@ -419,3 +419,21 @@ main:has(.watch) { max-width: 1320px; }
 .ai-ex { list-style: none; padding: 0; margin: 8px 0 0; }
 .ai-ex li { padding: 6px 0; border-top: 1px solid var(--line); }
 .ai-ex blockquote { margin: 4px 0; padding: 4px 10px; border-left: 2px solid var(--accent); font-size: 13px; color: var(--ink-2); }
+
+.impact { display: grid; grid-template-columns: repeat(4, 1fr); border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); }
+.impact > div { padding: 14px 16px; border-right: 1px solid var(--line); }
+.impact > div:last-child { border-right: 0; }
+.impact .v { font-size: 22px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.impact .k { font-size: 12px; color: var(--muted); }
+.guard { font-size: 13px; padding: 8px 12px; border-left: 2px solid var(--ok); background: var(--ok-soft); border-radius: 0 4px 4px 0; margin-top: 8px; }
+.guard.warn { border-left-color: var(--warn); background: var(--warn-soft); }
+.fact-row { display: grid; grid-template-columns: 1.2fr 0.8fr 1.6fr 0.9fr auto; gap: 6px; margin-bottom: 6px; align-items: center; }
+.fact-row input { padding: 7px 9px; font-size: 13px; }
+.brief { margin: 0 0 10px; }
+.brief summary { cursor: pointer; font-size: 13px; color: var(--ink-2); }
+.brief pre { font: 12px/1.5 var(--mono); background: var(--paper); border: 1px solid var(--line); border-radius: 4px; padding: 10px 12px; max-height: 320px; overflow: auto; white-space: pre-wrap; }
+@media (max-width: 900px) {
+  .impact { grid-template-columns: repeat(2, 1fr); }
+  .impact > div { border-bottom: 1px solid var(--line); }
+  .fact-row { grid-template-columns: 1fr 1fr; }
+}
