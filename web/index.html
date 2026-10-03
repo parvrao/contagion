@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Contagion</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/app.css">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Ccircle cx='8' cy='8' r='3' fill='%23C8361B'/%3E%3Ccircle cx='8' cy='8' r='6.5' fill='none' stroke='%23C8361B' stroke-width='1'/%3E%3C/svg%3E">
+</head>
+<body>
+  <header class="topbar">
+    <a class="wordmark" href="#/">Contagion</a>
+    <span class="tagline">Rumor trace and AI contamination audit</span>
+    <nav class="topnav">
+      <a href="#/" id="nav-new">New case</a>
+      <button class="linkish" id="nav-status" type="button">Sources</button>
+    </nav>
+  </header>
+
+  <main id="view" aria-live="polite"></main>
+
+  <dialog id="status-dialog">
+    <div class="dialog-head">
+      <h2>Connected sources and engines</h2>
+      <button class="linkish" type="button" data-close>Close</button>
+    </div>
+    <div id="status-body"></div>
+  </dialog>
+
+  <dialog id="token-dialog">
+    <form method="dialog" id="token-form">
+      <h2>Access token</h2>
+      <p class="muted">This deployment is protected. Enter the token you were given.</p>
+      <input id="token-input" type="password" autocomplete="off" required>
+      <div class="row-end"><button class="btn" type="submit">Continue</button></div>
+    </form>
+  </dialog>
+
+  <script src="/static/app.js" type="module"></script>
+</body>
+</html>
