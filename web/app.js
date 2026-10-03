@@ -134,14 +134,14 @@ async function renderHome() {
 function caseRow(c) {
   if (c.mode === "watch") {
     return `<a class="list-item" href="#/watch/${esc(c.id)}">
-      <div class="li-top"><span>Watch · ${esc(c.brand)}${c.replay ? " · recorded" : ""}</span><span class="mono">${esc(c.status)}</span></div>
+      <div class="li-top"><span>Watch · ${esc(c.brand)}${c.replay ? ", recorded" : ""}</span><span class="mono">${esc(c.status)}</span></div>
       <div class="li-claim">${esc(c.claim)}</div></a>`;
   }
   const g = c.mode === "counter"
     ? (c.status === "done" ? `${c.summary?.ad_packages ?? 0} ad drafts` : c.status)
     : (c.grade && c.grade.level !== undefined ? `Grade ${c.grade.level} · ${c.grade.label}` : c.status);
   return `<a class="list-item" href="#/case/${esc(c.id)}">
-    <div class="li-top"><span>${c.mode === "counter" ? "Counter · " : ""}${esc(c.brand)}${c.replay ? " · recorded" : ""}</span><span class="mono">${esc(g)}</span></div>
+    <div class="li-top"><span>${c.mode === "counter" ? "Counter · " : ""}${esc(c.brand)}${c.replay ? ", recorded" : ""}</span><span class="mono">${esc(g)}</span></div>
     <div class="li-claim">${esc(c.claim)}</div></a>`;
 }
 
@@ -212,7 +212,7 @@ function drawCase() {
     ${c.status === "failed" ? `<div class="error-box" style="margin-bottom:16px">This run failed. See the log tab for the reason.</div>` : ""}
     <div class="case-head">
       <div>
-        <div class="case-brand">${esc(c.input.brand)} · case ${esc(c.id)} · ${esc(day(c.created_at))}${c.elapsed_seconds ? ` · ran in ${c.elapsed_seconds}s` : ""}</div>
+        <div class="case-brand">${esc(c.input.brand)} · case ${esc(c.id)}, ${esc(day(c.created_at))}${c.elapsed_seconds ? `, ran in ${c.elapsed_seconds}s` : ""}</div>
         <h1 class="case-claim">${esc(c.input.claim)}</h1>
         <div class="case-truth"><b>What's true:</b> ${esc(c.input.truth)}</div>
       </div>
@@ -220,11 +220,11 @@ function drawCase() {
     </div>
     <div class="stepper" id="stepper"></div>
     <div class="kpis">
-      ${kpi(s.total_relevant ?? "–", "public instances about the claim")}
-      ${kpi(s.amplifiers ?? "–", "spreading it as true", (s.amplifiers || 0) > 0)}
-      ${kpi(platforms || (running ? "–" : 0), "platforms carrying it")}
-      ${kpi(s.correction_lag_hours != null ? fmtLag(s.correction_lag_hours) : "–", "until the first correction")}
-      ${kpi(ct.answers ? `${ct.repeats}/${ct.answers}` : "–", "AI answers repeating it", (ct.repeats || 0) > 0)}
+      ${kpi(s.total_relevant ?? "-", "public instances about the claim")}
+      ${kpi(s.amplifiers ?? "-", "spreading it as true", (s.amplifiers || 0) > 0)}
+      ${kpi(platforms || (running ? "-" : 0), "platforms carrying it")}
+      ${kpi(s.correction_lag_hours != null ? fmtLag(s.correction_lag_hours) : "-", "until the first correction")}
+      ${kpi(ct.answers ? `${ct.repeats}/${ct.answers}` : "-", "AI answers repeating it", (ct.repeats || 0) > 0)}
     </div>
     <div class="tabs" role="tablist">
       ${tabBtn("spread", "Spread")}
@@ -267,7 +267,7 @@ function drawStepper() {
   const done = current.status === "done";
   el.innerHTML = stages.map(([k, label], i) => {
     const cls = done || i < idx ? "done" : i === idx && current.status === "running" ? "active" : "";
-    return `<div class="step ${cls}"><span class="n">0${i + 1}</span>${label}</div>`;
+    return `<div class="step ${cls}">${label}</div>`;
   }).join("");
 }
 
@@ -304,7 +304,7 @@ function tabSpread() {
       </div>
       <div class="panel"><h3>Earliest public instance found</h3>
         ${first ? `<div class="card first">
-          <div class="meta">${esc(first.platform)} · ${esc(day(first.published_at))} · date from ${esc(first.date_source)}</div>
+          <div class="meta">${esc(first.platform)} · ${esc(day(first.published_at))}, date from ${esc(first.date_source)}</div>
           <div><a href="${safeHref(first.url)}" target="_blank" rel="noopener">${esc(first.title || first.text.slice(0, 140) || first.url)}</a></div>
           <div class="small muted" style="margin-top:4px">${esc(first.author || first.domain)}</div>
         </div>
@@ -348,7 +348,7 @@ function timeline(items) {
     const y = top + lanes.indexOf(p.platform) * laneH + laneH / 2;
     const r = Math.min(9, 3.5 + Math.log10(1 + (p.engagement || 0)));
     svg += `<a href="${safeHref(p.url)}" target="_blank" rel="noopener"><circle cx="${x(Date.parse(p.published_at)).toFixed(1)}" cy="${y}" r="${r.toFixed(1)}" fill="${color[p.stance]}" fill-opacity="0.8">
-      <title>${esc(p.platform)} · ${esc(day(p.published_at))} · ${esc(p.stance)}\n${esc((p.title || p.text).slice(0, 120))}</title></circle></a>`;
+      <title>${esc(p.platform)} · ${esc(day(p.published_at))}, ${esc(p.stance)}\n${esc((p.title || p.text).slice(0, 120))}</title></circle></a>`;
   });
   return svg + "</svg>";
 }
@@ -611,8 +611,8 @@ function wireCounterForm() {
   });
 }
 
-const money0 = (v) => (v === null || v === undefined ? "–" : `$${Math.round(Number(v)).toLocaleString()}`);
-const money = (v) => (v === null || v === undefined ? "–" : `$${Number(v).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`);
+const money0 = (v) => (v === null || v === undefined ? "-" : `$${Math.round(Number(v)).toLocaleString()}`);
+const money = (v) => (v === null || v === undefined ? "-" : `$${Number(v).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`);
 
 function drawCounter() {
   const c = current, sm = c.summary || {};
@@ -624,7 +624,7 @@ function drawCounter() {
     ${c.status === "failed" ? `<div class="error-box" style="margin-bottom:16px">${esc(c.log.at(-1)?.message || "Run failed")}</div>` : ""}
     <div class="case-head">
       <div>
-        <div class="case-brand">Counter · ${esc(ci.our_brand)} · case ${esc(c.id)} · ${esc(day(c.created_at))}${c.elapsed_seconds ? ` · ran in ${c.elapsed_seconds}s` : ""}</div>
+        <div class="case-brand">Counter · ${esc(ci.our_brand)}, case ${esc(c.id)}, ${esc(day(c.created_at))}${c.elapsed_seconds ? `, ran in ${c.elapsed_seconds}s` : ""}</div>
         <h1 class="case-claim">Where is ${esc(`${ci.competitor} ${ci.competitor_product}`.trim())} letting customers down, and what do we have in stock that fixes it?</h1>
         <div class="case-truth">Rules: surplus over <b>${ci.dir_threshold_days} days</b> of supply, margin at least <b>${ci.min_margin_pct}%</b>, max CAC <b>${ci.cac_share_of_profit}%</b> of unit profit. Inventory from <b>${ci.inventory_source === "shopify" ? "Shopify" : "CSV"}</b>.</div>
       </div>
@@ -636,11 +636,11 @@ function drawCounter() {
     </div>
     <div class="stepper" id="stepper"></div>
     <div class="kpis">
-      ${kpi(sm.surplus_units != null ? sm.surplus_units.toLocaleString() : "–", `surplus units in ${sm.surplus_skus ?? "–"} of ${sm.skus ?? "–"} SKUs`)}
-      ${kpi(sm.impact ? money0(sm.impact.cash_tied) : "–", "cash tied up in surplus", (sm.impact?.cash_tied || 0) > 0)}
-      ${kpi(sm.impact ? money0(sm.impact.holding_cost_month) : "–", sm.impact?.holding_pct_assumption ? `holding cost / month (your ${sm.impact.holding_pct_assumption}%/yr rate)` : "holding cost / month (add your rate)")}
-      ${kpi(sm.verified_clusters ?? "–", "verified pain points", (sm.verified_clusters || 0) > 0)}
-      ${kpi(sm.ad_packages ?? "–", "ad drafts to review")}
+      ${kpi(sm.surplus_units != null ? sm.surplus_units.toLocaleString() : "-", `surplus units in ${sm.surplus_skus ?? "-"} of ${sm.skus ?? "-"} SKUs`)}
+      ${kpi(sm.impact ? money0(sm.impact.cash_tied) : "-", "cash tied up in surplus", (sm.impact?.cash_tied || 0) > 0)}
+      ${kpi(sm.impact ? money0(sm.impact.holding_cost_month) : "-", sm.impact?.holding_pct_assumption ? `holding cost / month (your ${sm.impact.holding_pct_assumption}%/yr rate)` : "holding cost / month (add your rate)")}
+      ${kpi(sm.verified_clusters ?? "-", "verified pain points", (sm.verified_clusters || 0) > 0)}
+      ${kpi(sm.ad_packages ?? "-", "ad drafts to review")}
     </div>
     <div class="tabs" role="tablist">
       ${tabBtn("opps", "Openings")}
@@ -665,8 +665,8 @@ function impactPanel(c) {
     <div class="impact">
       <div><div class="v">${money0(imp.cash_tied)}</div><div class="k">cash tied up in all surplus</div></div>
       <div><div class="v">${money0(imp.holding_cost_month)}</div><div class="k">holding cost per month</div></div>
-      <div><div class="v">${addressable.length ? money0(sum("revenue_unlocked")) : "–"}</div><div class="k">revenue if matched surplus sells</div></div>
-      <div><div class="v">${addressable.length ? money0(sum("contribution_after_cac")) : "–"}</div><div class="k">gross profit after paying max CAC</div></div>
+      <div><div class="v">${addressable.length ? money0(sum("revenue_unlocked")) : "-"}</div><div class="k">revenue if matched surplus sells</div></div>
+      <div><div class="v">${addressable.length ? money0(sum("contribution_after_cac")) : "-"}</div><div class="k">gross profit after paying max CAC</div></div>
     </div>
     <p class="small muted">Inventory arithmetic. ${imp.holding_pct_assumption ? `Holding cost uses your ${imp.holding_pct_assumption}%/yr rate.` : "Add your holding-cost rate to see holding cost."} "Matched" means SKUs with an ad draft; selling it all is the ceiling, not a forecast.</p>
     ${imp.stockout_guard.length ? `<div class="guard"><b>Stockout guard:</b> ${imp.stockout_guard.map((g) => `${esc(g.name)} <span class="mono">(${g.days_of_inventory} d)</span>`).join(", ")} excluded from ads: they're already selling fast, and ads would push them into a stockout.</div>` : ""}
@@ -683,7 +683,7 @@ function tabOpps() {
     const trend = cl.recent_7d || cl.prior_7d ? `${cl.recent_7d} in last 7 d vs ${cl.prior_7d} prior` : "no recent dated posts";
     return `<div class="opp card">
       <div class="opp-head">
-        <div><h2>${esc(cl.friction)}</h2><div class="small muted">${cl.mentions} mention(s) · ${cl.first_hand} first-hand · ${esc(cl.platforms.join(", "))} · ${esc(trend)} · ${cl.baseline_week}/wk baseline${cl.comment_to_view != null ? ` · YouTube comment-to-view ${(cl.comment_to_view * 100).toFixed(2)}%` : ""}</div></div>
+        <div><h2>${esc(cl.friction)}</h2><div class="small muted">${cl.mentions} mention(s) · ${cl.first_hand} first-hand, ${esc(cl.platforms.join(", "))}, ${esc(trend)}, ${cl.baseline_week}/wk baseline${cl.comment_to_view != null ? `, YouTube comment-to-view ${(cl.comment_to_view * 100).toFixed(2)}%` : ""}</div></div>
         <span>${cl.spiking ? `<span class="chip amplifies" title="last 7 days vs weekly baseline (days 8 to 35)">spiking ${cl.spike}x</span> ` : cl.new_signal ? `<span class="chip amplifies" title="3+ mentions this week, none in the prior 4 weeks">new this week</span> ` : ""}<span class="chip ${cl.reality === "verified" ? "debunks" : cl.reality === "disputed" ? "amplifies" : "unknown"}">${esc(cl.reality)}</span></span>
       </div>
       <div class="small muted" style="margin:6px 0 10px">${esc(cl.reality_reason)}</div>
@@ -707,7 +707,7 @@ function tabInventory() {
       <td class="mono">${esc(s.sku)}</td><td>${esc(s.name)}${s.variant ? ` <span class="muted">${esc(s.variant)}</span>` : ""}</td>
       <td class="num">${s.units_on_hand}</td><td class="num">${s.weekly_velocity}</td>
       <td class="num">${s.days_of_inventory == null ? "no sales" : s.days_of_inventory}</td><td class="num">${money(s.price)}</td>
-      <td class="num">${s.margin_pct == null ? "–" : `${s.margin_pct}%`}</td><td class="num">${money(s.max_cac)}</td><td class="num">${s.surplus_units}</td>
+      <td class="num">${s.margin_pct == null ? "-" : `${s.margin_pct}%`}</td><td class="num">${money(s.max_cac)}</td><td class="num">${s.surplus_units}</td>
       <td class="num">${money0(s.cash_tied)}</td><td class="num">${money0(s.holding_cost_month)}</td>
       <td><span class="chip ${s.flagged ? "debunks" : s.stockout_risk ? "amplifies" : "unknown"}">${s.flagged ? "surplus" : s.stockout_risk ? "stockout guard" : "skip"}</span> <span class="small muted">${esc(s.flag_reason)}</span></td></tr>`).join("")}</tbody></table>
     <p class="small muted">Days of supply = on hand / average daily sales over the window. Max CAC = (price - unit cost) x your CAC share. All arithmetic, no model.</p>`;
@@ -750,7 +750,7 @@ const VERACITY = { false: ["False", "fabricated outright"], misframed: ["Misfram
   true_unflattering: ["True but unflattering", "accurate, just bad for the brand"], opinion: ["Opinion", "a take, not a factual claim"],
   unclear: ["Unclear", "needs a fact check before anyone speaks"] };
 const TIER = { internal_brief: 0, faq_update: 1, correction_request: 2, community_note: 3, support_macro: 3, task: 3, holding_statement: 4, social_reply: 4 };
-const TIER_LABEL = ["Prep", "1 · Where people check later: AI answers and search", "2 · The original source", "3 · Platform tools", "4 · Public reply (last resort)"];
+const TIER_LABEL = ["Prep", "1 · Where people check later: AI answers and search", "2, The original source", "3, Platform tools", "4, Public reply (last resort)"];
 const AMP = { stay_quiet: "Stay quiet (for now)", public_ok: "Public reply is OK", act: "Act now" };
 const WKIND = { community_note: "Community note", holding_statement: "Holding statement", social_reply: "Social reply", support_macro: "Support macro", faq_update: "AI answer page",
   correction_request: "Correction request", internal_brief: "Internal brief", task: "Task" };
@@ -882,7 +882,7 @@ function drawWatch(selChanged) {
   }
   document.getElementById("w-banner").innerHTML = w.replay
     ? `<div class="banner">Recorded watch: a saved snapshot, no live polling. Start a new watch for live data.</div>`
-    : `<div class="banner subtle">Public sources only · not affiliated with ${esc(w.input.brand)} · nothing is posted or sent without your approval</div>`;
+    : `<div class="banner subtle">Public sources only · not affiliated with ${esc(w.input.brand)}, nothing is posted or sent without your approval</div>`;
   drawWatchStatus();
   drawWatchKpis();
   drawBoard();
@@ -901,9 +901,9 @@ function drawWatchStatus() {
   pill.querySelector("b").textContent = w.replay ? "RECORDED" : live ? "LIVE" : w.status.toUpperCase();
   const next = w.next_poll_at ? Math.max(0, Math.round((new Date(w.next_poll_at) - Date.now()) / 1000)) : null;
   const stage = w.stage === "waiting" && next !== null ? `next poll in ${next}s` : (STAGE_LABEL[w.stage] || w.stage) + "...";
-  document.getElementById("w-meta").textContent = `WATCH · started ${day(w.created_at)} · cycle ${w.cycles}${live ? " · " + stage : ""}`;
+  document.getElementById("w-meta").textContent = `Watch · started ${day(w.created_at)}, cycle ${w.cycles}${live ? ", " + stage : ""}`;
   const qs = quietStats(w);
-  document.getElementById("w-sub").innerHTML = `Listening across news, forums, video and the open web · checks every ${w.poll_seconds}s${(w.channels || []).length ? ` · alerts to ${esc(w.channels.join(", "))}` : ""}`
+  document.getElementById("w-sub").innerHTML = `Listening across news, forums, video and the open web · checks every ${w.poll_seconds}s${(w.channels || []).length ? `, alerts to ${esc(w.channels.join(", "))}` : ""}`
     + (qs.plans ? ` · <b>recommended staying quiet on ${qs.quiet} of ${qs.plans} narrative${qs.plans === 1 ? "" : "s"}</b>${qs.avoided ? `, avoiding up to ${qs.avoided.toLocaleString()} extra exposures` : ""}` : "");
   const ctr = document.getElementById("w-controls");
   const sig = `${w.status}|${w.replay}|${typeof Notification !== "undefined" ? Notification.permission : "na"}|${w.actions.filter((a) => a.status === "approved").length}`;
@@ -971,7 +971,7 @@ function narrCard(n) {
     <div class="narr-title">${esc(n.title)}</div>
     <div class="narr-claim">${esc(n.claim || n.summary)}</div>
     <div class="narr-foot">
-      <div class="narr-meta">${plural(n.count, "mention")} · ${n.count_24h} in 24h${n.velocity ? ` · ${n.velocity}x rate` : ""}<br>${esc(n.platforms.join(", "))} · first ${esc(ago(n.first_seen))}</div>
+      <div class="narr-meta">${plural(n.count, "mention")} · ${n.count_24h} in 24h${n.velocity ? `, ${n.velocity}x rate` : ""}<br>${esc(n.platforms.join(", "))}, first ${esc(ago(n.first_seen))}</div>
       ${spark(n.spark_days && n.spark_days.some(Boolean) && !n.spark.some(Boolean) ? n.spark_days : n.spark)}
     </div>
     <div class="scorebar"><span class="score-bg-${scoreClass(n.score)}" style="width:${n.score}%"></span></div>
@@ -1061,7 +1061,7 @@ function drawDetail(force) {
   const parts = Object.entries(n.score_parts || {}).map(([k, v]) => `<span>${esc(k)} <b>${v}</b></span>`).join("");
   el.innerHTML = `<div class="detail card">
     <div class="detail-head">
-      <div><div class="case-brand">NARRATIVE · ${esc(n.threat_type.replace("_", " "))} · ${esc(n.status)}</div><h2 class="detail-title">${esc(n.title)}</h2>
+      <div><div class="case-brand">Narrative · ${esc(n.threat_type.replace("_", " "))}, ${esc(n.status)}</div><h2 class="detail-title">${esc(n.title)}</h2>
       <div class="muted small">${esc(n.claim || n.summary)}</div></div>
       <div class="detail-score"><div class="score-num big score-${scoreClass(n.score)}">${n.score}</div><div class="small muted">threat score</div></div>
     </div>
@@ -1110,7 +1110,7 @@ function aiBlock(n) {
   const counts = (ex.citation_counts || []).filter((r) => r.count);
   return `<div class="ai-box ${ex.answers ? "hit" : ""}">
     <div class="ai-head"><b>${ex.answers ? `In AI answers: ${ex.answers} of ${ex.checked}` : `Not in AI answers yet (0 of ${ex.checked})`}</b>
-      <span class="small muted">Profound · ${esc(W.data.ai_category_name || "")} · ${esc(ago(W.data.ai_checked_at))}</span></div>
+      <span class="small muted">Profound · ${esc(W.data.ai_category_name || "")}, ${esc(ago(W.data.ai_checked_at))}</span></div>
     ${ex.answers ? `<div class="small">${esc(ex.models.join(", "))} already ${ex.answers === 1 ? "repeats or cites" : "repeat or cite"} this narrative. Fix the pages they cite first.</div>
       <ul class="ai-ex">${ex.examples.map((e) => `<li><span class="plat">${esc(e.model)}</span> <span class="muted small">"${esc(e.prompt)}"</span><blockquote>${esc(e.snippet)}</blockquote><span class="small muted">${esc(e.why)}</span></li>`).join("")}</ul>`
       : `<div class="small muted">Recent answers for this category don't cite or repeat it. Watching for the moment they do.</div>`}
@@ -1229,7 +1229,7 @@ function judgmentBlocks(pb) {
     <div class="reach-row">
       <div><div class="v">${Number(a.rumor_reach || 0).toLocaleString()}</div><div class="k">rumor reach (engagements found)</div></div>
       <div><div class="v">${a.brand_audience ? Number(a.brand_audience).toLocaleString() : "unknown"}</div><div class="k">brand audience</div></div>
-      <div><div class="v">${a.exposure_avoided ? "up to " + Number(a.exposure_avoided).toLocaleString() : "–"}</div><div class="k">extra exposure avoided by not replying</div></div>
+      <div><div class="v">${a.exposure_avoided ? "up to " + Number(a.exposure_avoided).toLocaleString() : "-"}</div><div class="k">extra exposure avoided by not replying</div></div>
     </div>
     ${(a.triggers || []).length ? `<div class="small"><b>Respond publicly only if:</b><ul class="trig">${a.triggers.map((t) => `<li>${esc(t)}</li>`).join("")}</ul></div>` : ""}
     <div class="small muted">${esc(a.reach_note || "")}</div>
