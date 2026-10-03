@@ -138,3 +138,43 @@ def test_api_roundtrip(monkeypatch):
     assert c.post(f"/api/watch/{wid}/control", json={"command": "pause"}).json()["status"] == "paused"
     assert any(row["mode"] == "watch" for row in c.get("/api/cases").json()["cases"])
     assert c.post(f"/api/cases/{wid}/save-replay", json={"name": "acme-watch"}).status_code == 200
+
+
+def test_profound_ai_exposure(monkeypatch):
+    from app.config import settings
+    from app.watch import ai
+    w = Watch(input=WatchInput(brand="Polar"))
+    store.save(w)
+
+    class Lead(Source):
+        name, platform = "google_news", "News"
+
+        async def search(self, plan):
+            return [Item(platform="News", url="https://gossip.example.com/polar-lead", domain="gossip.example.com", author="Gossip",
+                         title="Polar seltzer cans recalled over lead contamination", published_at=iso(2))]
+
+    run(engine.cycle(w, sources=[(Lead(), 1)]))
+    n = w.narratives[0]
+
+    async def fake_get(url, **kw):
+        return [{"id": "cat-1", "name": "SF Hackathon Participant 41 - CPG – Polar Seltzer"}]
+
+    async def fake_post(url, payload, **kw):
+        if url.endswith("/v1/prompts/answers"):
+            return {"data": [
+                {"model": "ChatGPT", "prompt": "Is Polar seltzer safe?", "response": "Some reports say Polar cans were recalled for lead contamination.",
+                 "citations": ["https://gossip.example.com/polar-lead"]},
+                {"model": "Perplexity", "prompt": "best seltzer", "response": "Polar is a popular seltzer brand.", "citations": []}]}
+        return {"data": [{"dimensions": ["gossip.example.com", "ChatGPT"], "metrics": [7]}]}
+
+    import dataclasses
+    monkeypatch.setattr(ai, "settings", dataclasses.replace(settings, profound_api_key="k"))
+    monkeypatch.setattr(ai.http, "get_json", fake_get)
+    monkeypatch.setattr(ai.http, "post_json", fake_post)
+    ai._categories.clear()
+    run(engine.check_ai(w))
+    assert w.ai_category_id == "cat-1" and w.ai_status.startswith("ok")
+    ex = n.ai_exposure
+    assert ex["answers"] == 1 and ex["models"] == ["ChatGPT"] and ex["citation_counts"][0]["count"] == 7
+    assert any(a.title.startswith("In AI answers") for a in w.alerts)
+    assert n.score_parts["ai_answers"] == 4

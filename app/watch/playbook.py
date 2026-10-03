@@ -56,8 +56,18 @@ def _prompt(w: Watch, n: Narrative, ev: list[Mention]) -> str:
             f"Threat score: {n.score}/100 (suggested level: {level_for(n.score)})\n"
             f"Mentions: {n.count} total, {n.count_24h} in 24h, velocity {n.velocity}x baseline, status {n.status}\n"
             f"Platforms: {', '.join(n.platforms)}; news outlets: {', '.join(n.news_outlets) or 'none'}\n"
-            f"Spreading {n.spreading} / correcting {n.correcting}; negative share {int(n.negative_share * 100)}%\n\n"
+            f"Spreading {n.spreading} / correcting {n.correcting}; negative share {int(n.negative_share * 100)}%\n"
+            f"AI answer engines (Profound): {_ai_line(n)}\n\n"
             f"Evidence:\n{rows}")
+
+
+def _ai_line(n: Narrative) -> str:
+    ex = n.ai_exposure or {}
+    if not ex.get("checked"):
+        return "not checked"
+    if not ex.get("answers"):
+        return f"none of {ex['checked']} recent AI answers repeat or cite it"
+    return f"{ex['answers']} of {ex['checked']} recent AI answers repeat or cite it on {', '.join(ex.get('models', []))}; prioritize fixing the pages they cite"
 
 
 async def build(w: Watch, n: Narrative) -> tuple[Playbook, list[WatchAction]]:

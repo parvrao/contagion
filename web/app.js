@@ -698,7 +698,7 @@ const W = { data: null, sel: null, filter: "all", seen: new Set(), firstLoad: tr
 const LEVEL_LABEL = { monitor: "Monitor", prepare: "Prepare", respond: "Respond", escalate: "Escalate" };
 const WKIND = { holding_statement: "Holding statement", social_reply: "Social reply", support_macro: "Support macro", faq_update: "FAQ / site update",
   correction_request: "Correction request", internal_brief: "Internal brief", task: "Task" };
-const STAGE_LABEL = { starting: "Starting", polling: "Polling sources", triage: "Reading new mentions", playbook: "Drafting playbook", waiting: "Listening" };
+const STAGE_LABEL = { starting: "Starting", polling: "Polling sources", triage: "Reading new mentions", playbook: "Drafting playbook", ai_check: "Checking AI answers (Profound)", waiting: "Listening" };
 
 function ago(iso) {
   if (!iso) return "undated";
@@ -843,7 +843,7 @@ function drawWatchStatus() {
   const next = w.next_poll_at ? Math.max(0, Math.round((new Date(w.next_poll_at) - Date.now()) / 1000)) : null;
   const stage = w.stage === "waiting" && next !== null ? `next poll in ${next}s` : (STAGE_LABEL[w.stage] || w.stage) + "...";
   document.getElementById("w-meta").textContent = `WATCH · started ${day(w.created_at)} · cycle ${w.cycles}${live ? " · " + stage : ""}`;
-  document.getElementById("w-sub").innerHTML = `News, Hacker News and Bluesky every ${w.poll_seconds}s · YouTube and open-web sweep (TikTok, X, Reddit, forums via search) about every 15 min · triage: <b>${esc(w.triage_mode || "pending")}</b>${w.triage_mode === "keyword fallback" ? ' <span class="chip pending">add a Claude or Gemini key for full triage</span>' : ""}`;
+  document.getElementById("w-sub").innerHTML = `News, Hacker News and Bluesky every ${w.poll_seconds}s · YouTube and open-web sweep (TikTok, X, Reddit, forums via search) about every 15 min · triage: <b>${esc(w.triage_mode || "pending")}</b>${w.triage_mode === "keyword fallback" ? ' <span class="chip pending">add a Claude or Gemini key for full triage</span>' : ""}<br>AI answer check (Profound): <b>${esc(w.ai_status || "pending")}</b>`;
   const ctr = document.getElementById("w-controls");
   const sig = `${w.status}|${w.replay}|${typeof Notification !== "undefined" ? Notification.permission : "na"}|${w.actions.filter((a) => a.status === "approved").length}`;
   if (ctr.dataset.sig === sig) return;
@@ -897,6 +897,7 @@ function narrCard(n) {
       <span class="chip type">${esc(n.threat_type.replace("_", " "))}</span>
       <span class="chip st-${esc(n.status)}">${esc(n.status)}</span>
       ${n.playbook ? `<span class="chip lvl-${esc(n.playbook.response_level)}">${esc(LEVEL_LABEL[n.playbook.response_level])}</span>` : ""}
+      ${n.ai_exposure && n.ai_exposure.answers ? `<span class="chip ai-hit" title="Profound: AI answers repeating or citing this">In AI answers</span>` : ""}
       <span class="score-num score-${scoreClass(n.score)}">${n.score}</span>
     </div>
     <div class="narr-title">${esc(n.title)}</div>
@@ -987,6 +988,7 @@ function drawDetail(force) {
       <div class="detail-score"><div class="score-num big score-${scoreClass(n.score)}">${n.score}</div><div class="small muted">threat score</div></div>
     </div>
     <div class="parts">${parts}</div>
+    ${aiBlock(n)}
     ${pb ? `
       <div class="level-row lvl-bg-${esc(pb.response_level)}"><div class="lvl-name">${esc(LEVEL_LABEL[pb.response_level])}</div><div>${esc(pb.level_reason)}</div></div>
       <dl class="assess">
@@ -1019,6 +1021,20 @@ function drawDetail(force) {
   el.querySelectorAll("textarea[data-aid]").forEach((t) => { if (edits[t.dataset.aid] !== undefined) t.value = edits[t.dataset.aid]; });
   if (focused) el.querySelector(`textarea[data-aid="${focused}"]`)?.focus();
   wireDetail(n);
+}
+
+function aiBlock(n) {
+  const ex = n.ai_exposure || {};
+  if (!ex.checked) return W.data.ai_status && !W.data.ai_status.startsWith("ok") ? `<div class="ai-box muted small">AI answer check (Profound): ${esc(W.data.ai_status)}</div>` : "";
+  const counts = (ex.citation_counts || []).filter((r) => r.count);
+  return `<div class="ai-box ${ex.answers ? "hit" : ""}">
+    <div class="ai-head"><b>${ex.answers ? `In AI answers: ${ex.answers} of ${ex.checked}` : `Not in AI answers yet (0 of ${ex.checked})`}</b>
+      <span class="small muted">Profound · ${esc(W.data.ai_category_name || "")} · ${esc(ago(W.data.ai_checked_at))}</span></div>
+    ${ex.answers ? `<div class="small">${esc(ex.models.join(", "))} already ${ex.answers === 1 ? "repeats or cites" : "repeat or cite"} this narrative. Fix the pages they cite first.</div>
+      <ul class="ai-ex">${ex.examples.map((e) => `<li><span class="plat">${esc(e.model)}</span> <span class="muted small">"${esc(e.prompt)}"</span><blockquote>${esc(e.snippet)}</blockquote><span class="small muted">${esc(e.why)}</span></li>`).join("")}</ul>`
+      : `<div class="small muted">Recent answers for this category don't cite or repeat it. Watching for the moment they do.</div>`}
+    ${counts.length ? `<div class="small muted" style="margin-top:6px">Citations of sites carrying it (30 days): ${counts.slice(0, 6).map((r) => `${esc(r.hostname)} on ${esc(r.model)}: ${esc(r.count)}`).join(" · ")}</div>` : ""}
+  </div>`;
 }
 
 function watchActionCard(a) {

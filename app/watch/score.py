@@ -76,6 +76,7 @@ def score(n: Narrative) -> tuple[int, dict]:
         "reach": round(min(len(n.platforms), 4) / 4 * 10) + (8 if n.news_outlets and n.severity >= 2 else 0),
         "negativity": round(n.negative_share * 10),
         "unanswered": round(n.spreading / (n.spreading + n.correcting + 1) * 7),
+        "ai_answers": min(12, 4 * len(n.ai_exposure.get("models", []))) if n.ai_exposure.get("answers") else 0,
     }
     total = sum(parts.values())
     if n.threat_type == "praise" or n.severity == 0:
@@ -88,7 +89,8 @@ def level_for(score_: int) -> str:
 
 
 def snapshot(w: Watch) -> dict:
-    return {n.id: {"score": n.score, "platforms": set(n.platforms), "outlets": len(n.news_outlets), "status": n.status}
+    return {n.id: {"score": n.score, "platforms": set(n.platforms), "outlets": len(n.news_outlets), "status": n.status,
+                   "ai": n.ai_exposure.get("answers", 0)}
             for n in w.narratives}
 
 
@@ -114,6 +116,9 @@ def alerts_for(w: Watch, before: dict, first_cycle: bool) -> list[Alert]:
             out.append(Alert(narrative_id=n.id, level="warn", title=f"Jumped platforms: {tag}", reason=f"Now on {', '.join(sorted(new_platforms))} (was {', '.join(sorted(prev['platforms'])) or 'none'})."))
         if prev["outlets"] == 0 and n.news_outlets and n.severity >= 2:
             out.append(Alert(narrative_id=n.id, level="warn", title=f"News pickup: {tag}", reason=f"Carried by {', '.join(n.news_outlets[:3])}."))
+        if not prev.get("ai") and n.ai_exposure.get("answers") and n.severity >= 1:
+            out.append(Alert(narrative_id=n.id, level="critical", title=f"In AI answers: {tag}",
+                             reason=f"{n.ai_exposure['answers']} AI answers ({', '.join(n.ai_exposure.get('models', [])) or 'models unknown'}) repeat or cite it (Profound)."))
         if prev["status"] != "escalating" and n.status == "escalating":
             out.append(Alert(narrative_id=n.id, level="warn", title=f"Escalating: {tag}", reason=f"{n.velocity}x the usual mention rate in the last 6 hours."))
     if first_cycle:

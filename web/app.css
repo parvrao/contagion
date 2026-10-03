@@ -412,3 +412,10 @@ main:has(.watch) { max-width: 1320px; }
 .how li::before { content: counter(how, decimal-leading-zero); position: absolute; left: 0; top: 11px; font: 12px var(--mono); color: var(--muted); }
 .how b { color: var(--ink); font-weight: 600; }
 @media (max-width: 900px) { .hero-h { font-size: 24px; } .hero-input { flex-direction: column; } .hero-input .btn { padding: 11px; } }
+.chip.ai-hit { background: var(--accent); color: #fff; }
+.ai-box { border: 1px dashed var(--line-strong); border-radius: var(--radius); padding: 10px 12px; margin-bottom: 14px; }
+.ai-box.hit { border: 1px solid var(--accent); background: var(--accent-soft); }
+.ai-head { display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 4px; }
+.ai-ex { list-style: none; padding: 0; margin: 8px 0 0; }
+.ai-ex li { padding: 6px 0; border-top: 1px solid var(--line); }
+.ai-ex blockquote { margin: 4px 0; padding: 4px 10px; border-left: 2px solid var(--accent); font-size: 13px; color: var(--ink-2); }

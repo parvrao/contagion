@@ -21,12 +21,13 @@ from ..sources.hackernews import HackerNewsSource
 from ..sources.reddit import RedditSource
 from ..sources.websearch import WebSearchSource
 from ..sources.youtube import YouTubeSource
-from . import playbook, score, triage
+from . import ai, playbook, score, triage
 from .models import Alert, Mention, Watch
 
 POLL_SECONDS = int(os.environ.get("CONTAGION_POLL_SECONDS", "90"))
 MAX_MENTIONS = 1500
 AUTO_PLAYBOOK_SCORE = int(os.environ.get("CONTAGION_AUTO_PLAYBOOK_SCORE", "45"))
+AI_EVERY = int(os.environ.get("CONTAGION_AI_EVERY", "7"))   # Profound check every N cycles (~10 min)
 
 # (source, run every N cycles)
 CADENCE = [
@@ -148,6 +149,29 @@ async def cycle(w: Watch, sources=None) -> None:
         w.last_poll_at = now_iso()
         if not total_new:
             _log(w, "poll", f"Cycle {w.cycles}: no new mentions from {len(due)} sources.")
+        if first or (w.cycles - 1) % AI_EVERY == 0:
+            await check_ai(w)
+
+
+async def check_ai(w: Watch) -> None:
+    """Profound pass: which threat narratives are already in AI answers."""
+    w.stage = "ai_check"
+    store.publish(w.id, {"type": "update", "stage": "ai_check"})
+    before = score.snapshot(w)
+    try:
+        await ai.refresh(w)
+    except Exception as exc:  # noqa: BLE001
+        w.ai_status = f"error: {str(exc)[:160]}"
+    w.ai_checked_at = now_iso()
+    _log(w, "ai", f"Profound: {w.ai_status}", "info" if w.ai_status.startswith("ok") else "warn")
+    score.recompute(w)
+    fresh = [a for a in score.alerts_for(w, before, False) if a.title.startswith("In AI answers")]
+    for a in fresh:
+        w.alerts.insert(0, a)
+        store.publish(w.id, {"type": "alert", "alert": a.model_dump()})
+    if fresh:
+        asyncio.create_task(deliver(w, fresh))
+    store.save(w)
 
 
 async def _poll_group(w: Watch, group, plan, first: bool, now) -> int:

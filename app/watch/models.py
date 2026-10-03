@@ -113,6 +113,7 @@ class Narrative(BaseModel):
     status: NarrativeStatus = "emerging"
     playbook: Optional[Playbook] = None
     trace_case_id: str = ""
+    ai_exposure: dict = Field(default_factory=dict)   # Profound: AI answers repeating or citing this narrative
 
 
 class Alert(BaseModel):
@@ -144,5 +145,9 @@ class Watch(BaseModel):
     log: list[LogLine] = Field(default_factory=list)
     sources_status: dict = Field(default_factory=dict)
     source_last_run: dict = Field(default_factory=dict)
-    triage_mode: str = ""        # "claude" or "keyword fallback"
+    triage_mode: str = ""        # "Claude", "Gemini" or "keyword fallback"
+    ai_status: str = ""          # Profound status line
+    ai_category_id: str = ""
+    ai_category_name: str = ""
+    ai_checked_at: str = ""
     replay: bool = False
