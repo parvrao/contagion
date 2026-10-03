@@ -14,7 +14,7 @@ class BlueskySource(Source):
     async def search(self, plan: SearchPlan) -> list[Item]:
         items: dict[str, Item] = {}
         for q in plan.queries[:3]:
-            params = {"q": q, "limit": min(plan.limit, 100), "sort": "top"}
+            params = {"q": q, "limit": min(plan.limit, 100), "sort": plan.extra.get("sort", "top")}
             if plan.since:
                 params["since"] = f"{plan.since}T00:00:00Z"
             if plan.until:

@@ -1,7 +1,7 @@
 // Contagion UI. Vanilla JS, no build step. All scraped text is escaped before rendering.
 
 const view = document.getElementById("view");
-const state = { config: null, token: sessionStorageGet("contagion_token") || "", es: null, tab: "spread", filter: "all", probe: null, mode: "defend" };
+const state = { config: null, token: sessionStorageGet("contagion_token") || "", es: null, tab: "spread", filter: "all", probe: null, mode: "watch" };
 
 const STAGES_DEFEND = [["discovery", "Discovery"], ["analysis", "Analysis"], ["cross_reference", "Cross-referencing"], ["synthesis", "Synthesis"]];
 const STAGES_COUNTER = [["inventory", "Inventory"], ["listening", "Listening"], ["reality", "Reality check"], ["drafting", "Match & draft"]];
@@ -53,14 +53,16 @@ function askToken() {
 window.addEventListener("hashchange", route);
 document.querySelectorAll("dialog [data-close]").forEach((b) => b.addEventListener("click", () => b.closest("dialog").close()));
 document.getElementById("nav-status").addEventListener("click", showStatus);
-route();
 
 async function route() {
   if (state.es) { state.es.close(); state.es = null; }
+  stopWatchTimers();
   const m = location.hash.match(/^#\/case\/([\w-]+)/);
+  const mw = location.hash.match(/^#\/watch\/([\w-]+)/);
   try {
     if (!state.config) state.config = await api("/api/config");
-    if (m) await renderCase(m[1], true);
+    if (mw) await renderWatch(mw[1]);
+    else if (m) await renderCase(m[1], true);
     else await renderHome();
   } catch (err) {
     view.innerHTML = `<div class="error-box">Couldn't load: ${esc(err.message)}</div>`;
@@ -75,10 +77,11 @@ async function renderHome() {
     <div class="home">
       <section class="intro">
         <div class="seg" role="tablist" aria-label="Mode">
-          <button type="button" role="tab" data-mode="defend" aria-selected="${state.mode === "defend"}">Defend: trace a rumor</button>
+          <button type="button" role="tab" data-mode="watch" aria-selected="${state.mode === "watch"}">Watch: live brand threats</button>
+          <button type="button" role="tab" data-mode="defend" aria-selected="${state.mode === "defend"}">Trace a rumor</button>
           <button type="button" role="tab" data-mode="counter" aria-selected="${state.mode === "counter"}">Counter: competitor gap x inventory</button>
         </div>
-        ${state.mode === "counter" ? counterForm() : `
+        ${state.mode === "watch" ? watchForm() : state.mode === "counter" ? counterForm() : `
         <h1>Trace a rumor and see whether AI engines now repeat it.</h1>
         <p>Contagion finds every public instance of a claim about your brand, maps how it moved across platforms,
         asks the AI engines what they say about it, and drafts the response. A person approves every action. Nothing is sent automatically.</p>
@@ -109,7 +112,7 @@ async function renderHome() {
         <div class="side-section">
           <h3>Recorded runs</h3>
           <div class="list">${replays.length ? replays.map((r) => `
-            <a class="list-item" href="#" data-replay="${esc(r.name)}">
+            <a class="list-item" href="#" data-replay="${esc(r.name)}" data-rmode="${esc(r.mode)}">
               <div class="li-top"><span>${esc(r.brand)}</span><span class="mono">${esc(day(r.recorded_at))}</span></div>
               <div class="li-claim">${esc(r.claim)}</div></a>`).join("") : `<div class="empty">Save a finished live run as a replay to have a backup for the demo.</div>`}</div>
         </div>
@@ -120,14 +123,20 @@ async function renderHome() {
   view.querySelectorAll("[data-replay]").forEach((a) => a.addEventListener("click", async (e) => {
     e.preventDefault();
     const { id } = await api(`/api/replays/${encodeURIComponent(a.dataset.replay)}`, { method: "POST" });
-    location.hash = `#/case/${id}`;
+    location.hash = a.dataset.rmode === "watch" ? `#/watch/${id}` : `#/case/${id}`;
   }));
   view.querySelectorAll("[data-mode]").forEach((b) => b.addEventListener("click", () => { state.mode = b.dataset.mode; renderHome(); }));
-  if (state.mode === "counter") wireCounterForm();
+  if (state.mode === "watch") wireWatchForm();
+  else if (state.mode === "counter") wireCounterForm();
   else document.getElementById("case-form").addEventListener("submit", submitCase);
 }
 
 function caseRow(c) {
+  if (c.mode === "watch") {
+    return `<a class="list-item" href="#/watch/${esc(c.id)}">
+      <div class="li-top"><span>Watch · ${esc(c.brand)}${c.replay ? " · recorded" : ""}</span><span class="mono">${esc(c.status)}</span></div>
+      <div class="li-claim">${esc(c.claim)}</div></a>`;
+  }
   const g = c.mode === "counter"
     ? (c.status === "done" ? `${c.summary?.ad_packages ?? 0} ad drafts` : c.status)
     : (c.grade && c.grade.level !== undefined ? `Grade ${c.grade.level} · ${c.grade.label}` : c.status);
@@ -683,3 +692,402 @@ function adMeta(m) {
     <span title="${esc(m.budget_note)}">suggested ${money(m.suggested_daily_budget)}/day (heuristic)</span>
   </div>`;
 }
+
+// ================= Watch mode (live brand monitor) =================
+const W = { data: null, sel: null, filter: "all", seen: new Set(), firstLoad: true, timer: null, poll: null, refresh: null, showLow: false, tracing: false };
+const LEVEL_LABEL = { monitor: "Monitor", prepare: "Prepare", respond: "Respond", escalate: "Escalate" };
+const WKIND = { holding_statement: "Holding statement", social_reply: "Social reply", support_macro: "Support macro", faq_update: "FAQ / site update",
+  correction_request: "Correction request", internal_brief: "Internal brief", task: "Task" };
+const STAGE_LABEL = { starting: "Starting", polling: "Polling sources", triage: "Reading new mentions", playbook: "Drafting playbook", waiting: "Listening" };
+
+function ago(iso) {
+  if (!iso) return "undated";
+  const s = (Date.now() - new Date(iso).getTime()) / 1000;
+  if (isNaN(s)) return "undated";
+  if (s < 60) return "just now";
+  if (s < 3600) return `${Math.floor(s / 60)}m ago`;
+  if (s < 86400) return `${Math.floor(s / 3600)}h ago`;
+  return `${Math.floor(s / 86400)}d ago`;
+}
+const scoreClass = (s) => (s >= 70 ? "crit" : s >= 45 ? "high" : s >= 25 ? "mid" : "low");
+const isThreat = (n) => n.threat_type !== "praise" && (n.severity >= 1 || n.score >= 25);
+
+function watchForm() {
+  return `
+    <h1>Watch any brand. See threats the moment they start moving.</h1>
+    <p>Type a brand or product. Contagion starts listening across news, forums, social and video right away, reads every new mention,
+    groups them into narratives, scores the threat, alerts your team, and drafts a response plan a person approves. Nothing is posted or sent automatically.</p>
+    <form id="watch-form" autocomplete="off">
+      <div class="field"><label for="w-brand">Brand</label><input id="w-brand" name="brand" required maxlength="120" placeholder="e.g. Stanley"></div>
+      <div class="row">
+        <div class="field"><label for="w-product">Product or campaign <span class="hint">optional</span></label><input id="w-product" name="product" maxlength="120" placeholder="e.g. Quencher tumbler"></div>
+        <div class="field"><label for="w-domain">Official site <span class="hint">optional</span></label><input id="w-domain" name="domain" maxlength="200" placeholder="stanley1913.com"></div>
+      </div>
+      <div class="field"><label for="w-kw">Extra keywords <span class="hint">comma separated, optional</span></label><input id="w-kw" name="keywords" placeholder="e.g. stanley cup lead, stanley recall"></div>
+      <details class="rules"><summary>Verified brand facts (optional)</summary>
+        <div class="field"><label for="w-pos">Facts drafts may use <span class="hint">anything else becomes a [CONFIRM] placeholder</span></label>
+        <textarea id="w-pos" name="position" rows="3" maxlength="2000"></textarea></div>
+      </details>
+      <div id="form-error"></div>
+      <div class="row-end"><button class="btn" type="submit">Start watching</button></div>
+    </form>`;
+}
+
+function wireWatchForm() {
+  document.getElementById("watch-form").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const body = Object.fromEntries(new FormData(e.target).entries());
+    body.keywords = (body.keywords || "").split(",").map((s) => s.trim()).filter(Boolean);
+    const btn = e.target.querySelector("button[type=submit]");
+    btn.disabled = true; btn.textContent = "Starting...";
+    try {
+      const { id } = await api("/api/watch", { method: "POST", body: JSON.stringify(body) });
+      location.hash = `#/watch/${id}`;
+    } catch (err) {
+      document.getElementById("form-error").innerHTML = `<div class="error-box">${esc(err.message)}</div>`;
+      btn.disabled = false; btn.textContent = "Start watching";
+    }
+  });
+}
+
+function stopWatchTimers() {
+  clearInterval(W.timer); clearInterval(W.poll); clearTimeout(W.refresh);
+  W.timer = W.poll = W.refresh = null;
+}
+
+async function renderWatch(id) {
+  stopWatchTimers();
+  W.data = null; W.sel = null; W.seen = new Set(); W.firstLoad = true; W.tracing = false;
+  await loadWatch(id);
+  if (!W.data.replay) {
+    const url = `/api/cases/${id}/events${state.token ? `?token=${encodeURIComponent(state.token)}` : ""}`;
+    state.es = new EventSource(url);
+    state.es.onmessage = (msg) => {
+      const ev = JSON.parse(msg.data);
+      if (ev.type === "alert") notifyAlert(ev.alert);
+      if (ev.type === "update" && W.data) { W.data.stage = ev.stage || W.data.stage; if (ev.next_poll_at) W.data.next_poll_at = ev.next_poll_at; drawWatchStatus(); }
+      clearTimeout(W.refresh);
+      W.refresh = setTimeout(() => loadWatch(id), 600);
+    };
+    W.poll = setInterval(() => loadWatch(id), 20000);   // safety net if the stream drops
+  }
+  W.timer = setInterval(drawWatchStatus, 1000);
+}
+
+async function loadWatch(id) {
+  if (!location.hash.startsWith(`#/watch/${id}`)) return;
+  const d = await api(`/api/watch/${id}`);
+  const prevSel = W.sel;
+  W.data = d;
+  if (!W.sel || !d.narratives.some((n) => n.id === W.sel)) W.sel = (d.narratives.find(isThreat) || d.narratives[0] || {}).id || null;
+  drawWatch(prevSel !== W.sel);
+  d.mentions.forEach((m) => W.seen.add(m.id));
+  W.firstLoad = false;
+}
+
+function drawWatch(selChanged) {
+  const w = W.data;
+  if (!view.querySelector(".watch")) {
+    view.innerHTML = `<div class="watch">
+      <div id="w-banner"></div>
+      <div class="w-head">
+        <div>
+          <div class="case-brand" id="w-meta"></div>
+          <h1 class="w-title">${esc(w.input.brand)}${w.input.product ? ` <span class="muted">/ ${esc(w.input.product)}</span>` : ""} <span class="live-pill" id="w-live"><i></i><b>LIVE</b></span></h1>
+          <div class="w-sub" id="w-sub"></div>
+        </div>
+        <div class="w-controls" id="w-controls"></div>
+      </div>
+      <div class="kpis" id="w-kpis"></div>
+      <div class="w-grid">
+        <section>
+          <div class="panel"><div class="panel-head"><h3>Narratives by threat</h3><span class="small muted" id="w-narr-note"></span></div><div id="w-board"></div></div>
+          <div class="panel" id="w-detail"></div>
+        </section>
+        <aside>
+          <div class="panel"><div class="panel-head"><h3>Alerts</h3><button class="linkish small" id="w-read">Mark all read</button></div><div id="w-alerts"></div></div>
+          <div class="panel"><div class="panel-head"><h3>Live evidence</h3><span class="small muted" id="w-stream-count"></span></div>
+            <div class="filters" id="w-filters"></div><div class="stream" id="w-stream"></div></div>
+        </aside>
+      </div>
+      <div class="panel"><details><summary class="small">Sources and log</summary><div id="w-log"></div></details></div>
+      <div id="toasts" class="toasts" aria-live="assertive"></div>
+    </div>`;
+    document.getElementById("w-read").addEventListener("click", async () => { await api(`/api/watch/${w.id}/alerts/read`, { method: "POST" }); loadWatch(w.id); });
+  }
+  document.getElementById("w-banner").innerHTML = w.replay
+    ? `<div class="banner">Recorded watch: a saved snapshot, no live polling. Start a new watch for live data.</div>`
+    : `<div class="banner subtle">Public, indexed sources only. Not affiliated with ${esc(w.input.brand)}. Alerts go to your team; drafts are never posted or sent without a person's approval.</div>`;
+  drawWatchStatus();
+  drawWatchKpis();
+  drawBoard();
+  drawAlerts();
+  drawStream();
+  drawWatchLog();
+  drawDetail(selChanged);
+}
+
+function drawWatchStatus() {
+  const w = W.data; if (!w) return;
+  const live = w.live && w.status === "running";
+  const pill = document.getElementById("w-live");
+  if (!pill) return;
+  pill.className = `live-pill ${live ? "" : "off"}`;
+  pill.querySelector("b").textContent = w.replay ? "RECORDED" : live ? "LIVE" : w.status.toUpperCase();
+  const next = w.next_poll_at ? Math.max(0, Math.round((new Date(w.next_poll_at) - Date.now()) / 1000)) : null;
+  const stage = w.stage === "waiting" && next !== null ? `next poll in ${next}s` : (STAGE_LABEL[w.stage] || w.stage) + "...";
+  document.getElementById("w-meta").textContent = `WATCH · started ${day(w.created_at)} · cycle ${w.cycles}${live ? " · " + stage : ""}`;
+  document.getElementById("w-sub").innerHTML = `News, Hacker News and Bluesky every ${w.poll_seconds}s · YouTube and open-web sweep (TikTok, X, Reddit, forums via search) about every 15 min · triage: <b>${esc(w.triage_mode === "claude" ? "Claude" : w.triage_mode || "pending")}</b>${w.triage_mode === "keyword fallback" ? ' <span class="chip pending">add ANTHROPIC_API_KEY for full triage</span>' : ""}`;
+  const ctr = document.getElementById("w-controls");
+  const sig = `${w.status}|${w.replay}|${typeof Notification !== "undefined" ? Notification.permission : "na"}|${w.actions.filter((a) => a.status === "approved").length}`;
+  if (ctr.dataset.sig === sig) return;
+  ctr.dataset.sig = sig;
+  const approved = w.actions.filter((a) => a.status === "approved").length;
+  const tok = state.token ? `?token=${encodeURIComponent(state.token)}` : "";
+  ctr.innerHTML = w.replay ? "" : `
+    <button class="btn small" data-ctl="poll">Poll now</button>
+    <button class="btn small secondary" data-ctl="${w.status === "paused" ? "resume" : "pause"}">${w.status === "paused" ? "Resume" : "Pause"}</button>
+    ${typeof Notification !== "undefined" && Notification.permission !== "granted" ? `<button class="btn small secondary" id="w-notify">Enable desktop alerts</button>` : ""}
+    <button class="btn small secondary" id="w-save">Save replay</button>
+    <a class="btn small secondary" href="/api/watch/${esc(w.id)}/export.csv${tok}" ${approved ? "" : `aria-disabled="true" style="pointer-events:none;opacity:.4"`}>Export ${approved} approved</a>`;
+  ctr.querySelectorAll("[data-ctl]").forEach((b) => b.addEventListener("click", async () => {
+    b.disabled = true;
+    await api(`/api/watch/${w.id}/control`, { method: "POST", body: JSON.stringify({ command: b.dataset.ctl }) });
+    loadWatch(w.id);
+  }));
+  document.getElementById("w-notify")?.addEventListener("click", async () => { await Notification.requestPermission(); ctr.dataset.sig = ""; drawWatchStatus(); });
+  document.getElementById("w-save")?.addEventListener("click", async (e) => {
+    const name = `${w.input.brand}-watch`.toLowerCase().replace(/[^a-z0-9-]+/g, "-");
+    const { name: saved } = await api(`/api/cases/${w.id}/save-replay`, { method: "POST", body: JSON.stringify({ name }) });
+    e.target.textContent = `Saved: ${saved}`;
+  });
+}
+
+function drawWatchKpis() {
+  const w = W.data;
+  const rel = w.mentions.filter((m) => m.relevant);
+  const dayAgo = Date.now() - 86400000;
+  const m24 = rel.filter((m) => new Date(m.published_at || m.found_at).getTime() >= dayAgo);
+  const neg = m24.length ? Math.round((m24.filter((m) => m.sentiment === "negative" || m.sentiment === "mixed").length / m24.length) * 100) : 0;
+  const threats = w.narratives.filter((n) => isThreat(n) && n.status !== "fading");
+  const top = w.narratives.reduce((a, n) => Math.max(a, n.score), 0);
+  const unread = w.alerts.filter((a) => !a.read).length;
+  document.getElementById("w-kpis").innerHTML =
+    kpi(m24.length, `mentions in 24h (${rel.length} total)`) + kpi(`${neg}%`, "negative or mixed (24h)", neg >= 40) +
+    kpi(threats.length, "active threat narratives", threats.length > 0) +
+    `<div class="kpi"><div class="v score-${scoreClass(top)}">${top}<span class="of">/100</span></div><div class="k">top threat score</div></div>` +
+    kpi(unread, "unread alerts", unread > 0);
+}
+
+function spark(vals) {
+  const max = Math.max(1, ...vals);
+  const pts = vals.map((v, i) => `${(i / (vals.length - 1)) * 120},${26 - (v / max) * 22}`).join(" ");
+  return `<svg class="spark" viewBox="0 0 120 28" preserveAspectRatio="none" aria-hidden="true"><polyline points="0,28 ${pts} 120,28" class="area"/><polyline points="${pts}" class="line"/></svg>`;
+}
+
+function narrCard(n) {
+  return `<button class="narr ${n.id === W.sel ? "on" : ""}" data-nid="${esc(n.id)}" type="button">
+    <div class="narr-top">
+      <span class="chip type">${esc(n.threat_type.replace("_", " "))}</span>
+      <span class="chip st-${esc(n.status)}">${esc(n.status)}</span>
+      ${n.playbook ? `<span class="chip lvl-${esc(n.playbook.response_level)}">${esc(LEVEL_LABEL[n.playbook.response_level])}</span>` : ""}
+      <span class="score-num score-${scoreClass(n.score)}">${n.score}</span>
+    </div>
+    <div class="narr-title">${esc(n.title)}</div>
+    <div class="narr-claim">${esc(n.claim || n.summary)}</div>
+    <div class="narr-foot">
+      <div class="narr-meta">${plural(n.count, "mention")} · ${n.count_24h} in 24h${n.velocity ? ` · ${n.velocity}x rate` : ""}<br>${esc(n.platforms.join(", "))} · first ${esc(ago(n.first_seen))}</div>
+      ${spark(n.spark_days && n.spark_days.some(Boolean) && !n.spark.some(Boolean) ? n.spark_days : n.spark)}
+    </div>
+    <div class="scorebar"><span class="score-bg-${scoreClass(n.score)}" style="width:${n.score}%"></span></div>
+  </button>`;
+}
+
+function drawBoard() {
+  const w = W.data;
+  const threats = w.narratives.filter(isThreat);
+  const low = w.narratives.filter((n) => !isThreat(n));
+  document.getElementById("w-narr-note").textContent = w.narratives.length ? `${threats.length} threats · ${low.length} low-risk` : "";
+  const board = document.getElementById("w-board");
+  if (!w.narratives.length) {
+    board.innerHTML = `<div class="empty card">${w.cycles ? "No narratives yet. New mentions are read as they arrive." : "First sweep running: pulling the last 7 days of public mentions..."}</div>`;
+    return;
+  }
+  board.innerHTML = `<div class="board">${threats.map(narrCard).join("") || `<div class="empty card">No threat narratives right now. Low-risk chatter is below.</div>`}</div>
+    ${low.length ? `<button class="linkish small low-toggle" id="w-low">${W.showLow ? "Hide" : "Show"} low-risk chatter (${low.length})</button>
+    ${W.showLow ? `<div class="board low">${low.map(narrCard).join("")}</div>` : ""}` : ""}`;
+  board.querySelectorAll("[data-nid]").forEach((b) => b.addEventListener("click", () => { W.sel = b.dataset.nid; W.tracing = false; drawBoard(); drawDetail(true); drawStream(); document.getElementById("w-detail").scrollIntoView({ behavior: "smooth", block: "start" }); }));
+  document.getElementById("w-low")?.addEventListener("click", () => { W.showLow = !W.showLow; drawBoard(); });
+}
+
+function drawAlerts() {
+  const w = W.data;
+  const el = document.getElementById("w-alerts");
+  el.innerHTML = w.alerts.length ? `<ul class="alerts">${w.alerts.slice(0, 12).map((a) => `
+    <li class="al ${a.read ? "" : "unread"}" data-anid="${esc(a.narrative_id)}">
+      <span class="lvl lvl-${esc(a.level)}"></span>
+      <div><div class="al-title">${esc(a.title)}</div><div class="al-reason">${esc(a.reason)}</div>
+      <div class="al-meta">${esc(ago(a.at))}${a.delivered.length ? ` · sent to ${esc(a.delivered.join(", "))}` : ""}</div></div></li>`).join("")}</ul>`
+    : `<div class="empty">No alerts yet. You'll get one when a narrative turns serious, speeds up, jumps platforms or reaches the news.</div>`;
+  el.querySelectorAll("[data-anid]").forEach((li) => li.addEventListener("click", () => { if (li.dataset.anid) { W.sel = li.dataset.anid; drawBoard(); drawDetail(true); drawStream(); } }));
+}
+
+function streamRow(m, fresh) {
+  return `<a class="sr ${fresh ? "fresh" : ""} sev-${m.severity}" href="${safeHref(m.url)}" target="_blank" rel="noopener noreferrer">
+    <div class="sr-top"><span class="plat">${esc(m.platform)}</span><span class="chip ${m.sentiment === "negative" ? "amplifies" : m.sentiment === "positive" ? "debunks" : "reports"}">${esc(m.sentiment)}</span>
+      ${m.stance !== "neutral" ? `<span class="chip ${m.stance === "spreading" ? "amplifies" : "debunks"}">${esc(m.stance)}</span>` : ""}
+      <span class="sr-time">${esc(ago(m.published_at || m.found_at))}</span></div>
+    <div class="sr-text">${esc(m.summary || m.title || m.text.slice(0, 200))}</div>
+    <div class="sr-by">${esc(m.author || m.domain || host(m.url))}${m.engagement ? ` · ${m.engagement} engagements` : ""}</div></a>`;
+}
+
+function drawStream() {
+  const w = W.data;
+  const plats = [...new Set(w.mentions.filter((m) => m.relevant).map((m) => m.platform))].sort();
+  const opts = [["all", "All"], ["threats", "Threats"], ["negative", "Negative"], ["narrative", "This narrative"], ...plats.map((p) => [`p:${p}`, p])];
+  document.getElementById("w-filters").innerHTML = opts.map(([k, l]) => `<button type="button" data-f="${esc(k)}" aria-pressed="${W.filter === k}">${esc(l)}</button>`).join("");
+  document.querySelectorAll("#w-filters [data-f]").forEach((b) => b.addEventListener("click", () => { W.filter = b.dataset.f; drawStream(); }));
+  let rows = w.mentions.filter((m) => m.relevant);
+  if (W.filter === "threats") rows = rows.filter((m) => m.severity >= 2);
+  else if (W.filter === "negative") rows = rows.filter((m) => m.sentiment === "negative" || m.sentiment === "mixed");
+  else if (W.filter === "narrative") rows = rows.filter((m) => m.narrative_id === W.sel);
+  else if (W.filter.startsWith("p:")) rows = rows.filter((m) => m.platform === W.filter.slice(2));
+  rows = [...rows].sort((a, b) => (b.published_at || b.found_at).localeCompare(a.published_at || a.found_at));
+  document.getElementById("w-stream-count").textContent = `${rows.length} shown`;
+  document.getElementById("w-stream").innerHTML = rows.length
+    ? rows.slice(0, 150).map((m) => streamRow(m, !W.firstLoad && !W.seen.has(m.id))).join("")
+    : `<div class="empty">${w.cycles ? "Nothing matches this filter." : "Listening..."}</div>`;
+}
+
+function drawDetail(force) {
+  const w = W.data;
+  const el = document.getElementById("w-detail");
+  const n = w.narratives.find((x) => x.id === W.sel);
+  if (!n) { el.innerHTML = ""; return; }
+  const acts = w.actions.filter((a) => a.narrative_id === n.id);
+  const sig = JSON.stringify([n.id, n.score, n.count, n.playbook?.generated_at, acts.map((a) => a.id + a.status), W.tracing, n.trace_case_id]);
+  if (!force && el.dataset.sig === sig) return;
+  // Keep any unsaved edits the reviewer typed.
+  const edits = {};
+  el.querySelectorAll("textarea[data-aid]").forEach((t) => { edits[t.dataset.aid] = t.value; });
+  const focused = document.activeElement?.dataset?.aid;
+  el.dataset.sig = sig;
+  const pb = n.playbook;
+  const parts = Object.entries(n.score_parts || {}).map(([k, v]) => `<span>${esc(k)} <b>${v}</b></span>`).join("");
+  el.innerHTML = `<div class="detail card">
+    <div class="detail-head">
+      <div><div class="case-brand">NARRATIVE · ${esc(n.threat_type.replace("_", " "))} · ${esc(n.status)}</div><h2 class="detail-title">${esc(n.title)}</h2>
+      <div class="muted small">${esc(n.claim || n.summary)}</div></div>
+      <div class="detail-score"><div class="score-num big score-${scoreClass(n.score)}">${n.score}</div><div class="small muted">threat score</div></div>
+    </div>
+    <div class="parts">${parts}</div>
+    ${pb ? `
+      <div class="level-row lvl-bg-${esc(pb.response_level)}"><div class="lvl-name">${esc(LEVEL_LABEL[pb.response_level])}</div><div>${esc(pb.level_reason)}</div></div>
+      <dl class="assess">
+        <div><dt>What's being said</dt><dd>${esc(pb.what)}</dd></div>
+        <div><dt>Who's carrying it</dt><dd>${esc(pb.who)}</dd></div>
+        <div><dt>How fast</dt><dd>${esc(pb.how_fast)}</dd></div>
+        <div><dt>Why it matters</dt><dd>${esc(pb.why_it_matters)}</dd></div>
+      </dl>
+      <div class="two-lists">
+        ${pb.do_not.length ? `<div><h3>Don't</h3><ul>${pb.do_not.map((x) => `<li>${esc(x)}</li>`).join("")}</ul></div>` : ""}
+        ${pb.watch_for.length ? `<div><h3>Change the plan if</h3><ul>${pb.watch_for.map((x) => `<li>${esc(x)}</li>`).join("")}</ul></div>` : ""}
+      </div>
+      <div class="panel-head"><h3>Recommended actions · ${acts.filter((a) => a.status === "pending").length} awaiting approval</h3>
+        <span class="small muted">${pb.by === "template" ? "template plan (add Claude key for a tailored one)" : "drafted by Claude"} · ${esc(ago(pb.generated_at))}</span></div>
+      <div>${acts.map(watchActionCard).join("")}</div>`
+    : `<div class="empty">No response plan yet. Plans are drafted automatically once a narrative's threat score reaches 45, or build one now.</div>`}
+    <div class="detail-tools">
+      <button class="btn small ${pb ? "secondary" : ""}" id="w-pb">${pb ? "Rebuild plan" : "Build response plan"}</button>
+      ${n.trace_case_id ? `<a class="btn small secondary" href="#/case/${esc(n.trace_case_id)}">Open deep trace</a>` : `<button class="btn small secondary" id="w-trace-open">Deep trace + AI engine check</button>`}
+      <details class="facts"><summary class="small">Verified brand facts for drafts</summary>
+        <textarea id="w-pos" rows="3" maxlength="2000" placeholder="e.g. No recall has been issued. Lead is sealed under a steel cap and never touches the drink.">${esc(w.input.position)}</textarea>
+        <div class="row-end"><button class="btn small secondary" id="w-pos-save">Save facts and rebuild plan</button></div></details>
+    </div>
+    ${W.tracing ? `<form class="trace-form" id="w-trace">
+      <p class="small muted">Runs the full trace on this narrative: origin, platform hops, and whether AI answer engines repeat it.</p>
+      <div class="field"><label>The claim, as people repeat it</label><textarea name="claim" rows="2" required minlength="5">${esc(n.claim || n.title)}</textarea></div>
+      <div class="field"><label>What is true <span class="hint">the brand's position</span></label><textarea name="truth" rows="2" required minlength="5">${esc(w.input.position)}</textarea></div>
+      <div class="row-end"><button class="btn small secondary" type="button" id="w-trace-cancel">Cancel</button><button class="btn small" type="submit">Start deep trace</button></div></form>` : ""}
+  </div>`;
+  el.querySelectorAll("textarea[data-aid]").forEach((t) => { if (edits[t.dataset.aid] !== undefined) t.value = edits[t.dataset.aid]; });
+  if (focused) el.querySelector(`textarea[data-aid="${focused}"]`)?.focus();
+  wireDetail(n);
+}
+
+function watchActionCard(a) {
+  const locked = a.status !== "pending";
+  return `<div class="action" data-status="${esc(a.status)}" data-aid-card="${esc(a.id)}">
+    <div class="action-head"><span class="action-kind">${esc(WKIND[a.kind] || a.kind)}</span><span class="action-title">${esc(a.title)}</span><span class="chip ${esc(a.status)}">${esc(a.status)}</span></div>
+    <div class="action-body">
+      <div class="owner-row">${a.owner ? `<span><b>Owner</b> ${esc(a.owner)}</span>` : ""}${a.timing ? `<span><b>When</b> ${esc(a.timing)}</span>` : ""}${a.channel ? `<span><b>Where</b> ${esc(a.channel)}</span>` : ""}${a.target_url ? `<span><b>Target</b> <a href="${safeHref(a.target_url)}" target="_blank" rel="noopener noreferrer">${esc(host(a.target_url))}</a></span>` : ""}</div>
+      ${a.why ? `<div class="why">${esc(a.why)}</div>` : ""}
+      ${a.draft || a.final_text ? `<textarea data-aid="${esc(a.id)}" ${locked ? "readonly" : ""}>${esc(a.status === "approved" ? a.final_text : a.draft)}</textarea>` : ""}
+      ${a.flags.length ? `<ul class="flags">${a.flags.map((f) => `<li>${esc(f)}</li>`).join("")}</ul>` : ""}
+      <div class="row-end">${locked ? `<button class="btn small secondary" data-dec="reset">Undo</button>`
+        : `<button class="btn small danger" data-dec="reject">Reject</button><button class="btn small" data-dec="approve">Approve${a.draft ? " as edited" : ""}</button>`}</div>
+    </div></div>`;
+}
+
+function wireDetail(n) {
+  const w = W.data;
+  const el = document.getElementById("w-detail");
+  el.querySelectorAll("[data-aid-card]").forEach((card) => card.querySelectorAll("[data-dec]").forEach((b) => b.addEventListener("click", async () => {
+    const t = card.querySelector("textarea");
+    b.disabled = true;
+    try {
+      await api(`/api/watch/${w.id}/actions/${card.dataset.aidCard}`, { method: "POST", body: JSON.stringify({ decision: b.dataset.dec, text: t ? t.value : null }) });
+    } catch (err) { b.disabled = false; alertInline(card, err.message); return; }
+    await loadWatch(w.id); drawDetail(true); drawWatchStatus();
+  })));
+  document.getElementById("w-pb")?.addEventListener("click", async (e) => {
+    e.target.disabled = true; e.target.textContent = "Drafting plan...";
+    try { await api(`/api/watch/${w.id}/narratives/${n.id}/playbook`, { method: "POST" }); } catch (err) { e.target.textContent = err.message; return; }
+    await loadWatch(w.id); drawDetail(true);
+  });
+  document.getElementById("w-pos-save")?.addEventListener("click", async (e) => {
+    e.target.disabled = true; e.target.textContent = "Saving...";
+    await api(`/api/watch/${w.id}/position`, { method: "POST", body: JSON.stringify({ position: document.getElementById("w-pos").value }) });
+    e.target.textContent = "Drafting plan...";
+    await api(`/api/watch/${w.id}/narratives/${n.id}/playbook`, { method: "POST" });
+    await loadWatch(w.id); drawDetail(true);
+  });
+  document.getElementById("w-trace-open")?.addEventListener("click", () => { W.tracing = true; drawDetail(true); });
+  document.getElementById("w-trace-cancel")?.addEventListener("click", () => { W.tracing = false; drawDetail(true); });
+  document.getElementById("w-trace")?.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const body = Object.fromEntries(new FormData(e.target).entries());
+    const btn = e.target.querySelector("button[type=submit]"); btn.disabled = true; btn.textContent = "Starting...";
+    try {
+      const { id } = await api(`/api/watch/${w.id}/narratives/${n.id}/trace`, { method: "POST", body: JSON.stringify(body) });
+      location.hash = `#/case/${id}`;
+    } catch (err) { btn.disabled = false; btn.textContent = err.message; }
+  });
+}
+
+function drawWatchLog() {
+  const w = W.data;
+  const src = Object.entries(w.sources_status).map(([k, v]) => `<tr><td>${esc(k)}</td><td class="${v.startsWith("ok") ? "status-ok" : "status-bad"}">${esc(v)}</td><td class="mono small muted">${esc(ago(w.source_last_run[k]))}</td></tr>`).join("");
+  document.getElementById("w-log").innerHTML = `<table class="sources-table"><tbody>${src}</tbody></table>
+    <div class="log" style="margin-top:12px">${[...w.log].reverse().slice(0, 80).map((l) => `<div class="${esc(l.level)}"><span class="t">${esc((l.at || "").slice(11, 19))}</span><span class="s">${esc(l.stage)}</span>${esc(l.message)}</div>`).join("")}</div>`;
+}
+
+function notifyAlert(a) {
+  const box = document.getElementById("toasts");
+  if (box) {
+    const t = document.createElement("div");
+    t.className = `toast lvl-b-${a.level}`;
+    t.innerHTML = `<b>${esc(a.title)}</b><div>${esc(a.reason)}</div>`;
+    t.addEventListener("click", () => { if (a.narrative_id) { W.sel = a.narrative_id; drawBoard(); drawDetail(true); } t.remove(); });
+    box.prepend(t);
+    setTimeout(() => t.remove(), 9000);
+  }
+  try {
+    if (typeof Notification !== "undefined" && Notification.permission === "granted" && a.level !== "info") {
+      new Notification(`Contagion: ${a.title}`, { body: a.reason, tag: a.id });
+    }
+  } catch { /* some browsers block notifications from this context */ }
+}
+
+// Start the router last so every module-level constant above is initialized.
+route();

@@ -38,7 +38,7 @@ class Settings:
     perplexity_api_key: str = field(default_factory=lambda: _env("PERPLEXITY_API_KEY"))
     perplexity_model: str = field(default_factory=lambda: _env("PERPLEXITY_MODEL", "sonar"))
     gemini_api_key: str = field(default_factory=lambda: _env("GEMINI_API_KEY"))
-    gemini_model: str = field(default_factory=lambda: _env("GEMINI_MODEL", "gemini-2.5-flash"))
+    gemini_model: str = field(default_factory=lambda: _env("GEMINI_MODEL", "gemini-flash-latest"))
 
     profound_api_key: str = field(default_factory=lambda: _env("PROFOUND_API_KEY"))
     profound_category_id: str = field(default_factory=lambda: _env("PROFOUND_CATEGORY_ID"))

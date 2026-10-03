@@ -4,3 +4,4 @@ __pycache__/
 data/cases/
 *.pyc
 .venv/
+.contagion-preview.tgz

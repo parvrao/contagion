@@ -32,6 +32,8 @@ from .sources import all_sources
 from .counter import engine as counter_engine
 from .counter import inventory as counter_inventory
 from .counter.models import CounterCase, CounterInput
+from .watch import engine as watch_engine
+from .watch.models import Watch, WatchInput
 
 ACCESS_TOKEN = os.environ.get("CONTAGION_ACCESS_TOKEN", "").strip()
 WEB_DIR = ROOT / "web"
@@ -40,6 +42,7 @@ _running: set[asyncio.Task] = set()
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
+    watch_engine.resume_all()
     yield
     await http.aclose()
 
@@ -263,7 +266,7 @@ class ReplayName(BaseModel):
 @app.post("/api/cases/{case_id}/save-replay", dependencies=[Depends(require_token)])
 def save_replay(case_id: str, body: ReplayName):
     case = _case_or_404(case_id)
-    if case.status != "done":
+    if case.status != "done" and getattr(case, "mode", "") != "watch":
         raise HTTPException(409, "Only finished runs can be saved as replays")
     safe = "".join(ch for ch in body.name.lower() if ch.isalnum() or ch in "-_")[:60] or case.id
     (store.REPLAYS_DIR / f"{safe}.json").write_text(case.model_dump_json(indent=1))
@@ -277,7 +280,10 @@ def open_replay(name: str):
         raise HTTPException(404, "Replay not found")
     case = store._load(path.read_text())
     recorded_at = case.created_at
-    case = case.model_copy(update={"id": short_id(), "replay": True})
+    update = {"id": short_id(), "replay": True}
+    if getattr(case, "mode", "") == "watch":
+        update["status"] = "stopped"
+    case = case.model_copy(update=update)
     case.log.insert(0, LogLine(stage="replay", message=f"Recorded run from {recorded_at}, opened as a replay. No live calls were made.", level="warn"))
     store.save(case)
     return {"id": case.id}
@@ -286,6 +292,150 @@ def open_replay(name: str):
 @app.get("/api/samples/inventory.csv", dependencies=[Depends(require_token)])
 def sample_inventory():
     return PlainTextResponse((ROOT / "data" / "samples" / "inventory_sample.csv").read_text(), media_type="text/csv")
+
+
+# ---------- watch (live brand monitor) ----------
+
+def _watch_or_404(watch_id: str) -> Watch:
+    w = store.get(watch_id)
+    if not isinstance(w, Watch):
+        raise HTTPException(404, "Watch not found")
+    return w
+
+
+@app.post("/api/watch", dependencies=[Depends(require_token)])
+async def create_watch(wi: WatchInput):
+    wi.keywords = [k.strip() for k in wi.keywords if k.strip()][:5]
+    w = Watch(input=wi, poll_seconds=watch_engine.POLL_SECONDS)
+    store.save(w)
+    watch_engine.start(w)
+    return {"id": w.id}
+
+
+@app.get("/api/watch/{watch_id}", dependencies=[Depends(require_token)])
+def get_watch(watch_id: str):
+    w = _watch_or_404(watch_id)
+    d = w.model_dump()
+    d["live"] = watch_engine.is_running(w.id)
+    return d
+
+
+class WatchControl(BaseModel):
+    command: str   # pause | resume | poll | stop
+
+
+@app.post("/api/watch/{watch_id}/control", dependencies=[Depends(require_token)])
+def control_watch(watch_id: str, c: WatchControl):
+    w = _watch_or_404(watch_id)
+    if w.replay:
+        raise HTTPException(409, "Recorded runs are read-only; start a live watch")
+    if c.command == "pause":
+        w.status = "paused"
+    elif c.command in ("resume", "poll"):
+        if w.status in ("paused", "stopped", "failed"):
+            w.status = "running"
+        watch_engine.start(w)
+        watch_engine.poke(w.id)
+    elif c.command == "stop":
+        w.status = "stopped"
+        watch_engine.poke(w.id)
+    else:
+        raise HTTPException(400, "command must be pause, resume, poll or stop")
+    store.save(w)
+    store.publish(w.id, {"type": "update", "stage": w.stage})
+    return {"status": w.status}
+
+
+class PositionBody(BaseModel):
+    position: str = ""
+
+
+@app.post("/api/watch/{watch_id}/position", dependencies=[Depends(require_token)])
+def set_position(watch_id: str, body: PositionBody):
+    w = _watch_or_404(watch_id)
+    w.input.position = body.position[:2000]
+    store.save(w)
+    return {"ok": True}
+
+
+@app.post("/api/watch/{watch_id}/narratives/{nid}/playbook", dependencies=[Depends(require_token)])
+async def watch_playbook(watch_id: str, nid: str):
+    w = _watch_or_404(watch_id)
+    n = next((x for x in w.narratives if x.id == nid), None)
+    if not n:
+        raise HTTPException(404, "Narrative not found")
+    await watch_engine.make_playbook(w, n)
+    return {"ok": True}
+
+
+class TraceBody(BaseModel):
+    claim: str
+    truth: str
+
+
+@app.post("/api/watch/{watch_id}/narratives/{nid}/trace", dependencies=[Depends(require_token)])
+async def watch_trace(watch_id: str, nid: str, body: TraceBody):
+    w = _watch_or_404(watch_id)
+    n = next((x for x in w.narratives if x.id == nid), None)
+    if not n:
+        raise HTTPException(404, "Narrative not found")
+    ci = CaseInput(brand=w.input.brand, claim=body.claim, truth=body.truth,
+                   truth_url=f"https://{w.input.domain}" if w.input.domain else "")
+    case = Case(input=ci)
+    store.save(case)
+    n.trace_case_id = case.id
+    store.save(w)
+    _spawn(pipeline.run_case(case))
+    return {"id": case.id}
+
+
+@app.post("/api/watch/{watch_id}/actions/{action_id}", dependencies=[Depends(require_token)])
+def watch_decide(watch_id: str, action_id: str, d: Decision):
+    w = _watch_or_404(watch_id)
+    a = next((x for x in w.actions if x.id == action_id), None)
+    if not a:
+        raise HTTPException(404, "Action not found")
+    if d.decision == "approve":
+        final = (d.text if d.text is not None else a.draft).strip()
+        from .watch.playbook import guardrail
+        allowed = {m.url for m in w.mentions} | ({a.target_url} if a.target_url else set())
+        a.flags = guardrail(final, w, allowed)
+        a.status, a.final_text = "approved", final
+    elif d.decision == "reject":
+        a.status, a.final_text = "rejected", ""
+    elif d.decision == "reset":
+        a.status, a.final_text = "pending", ""
+    else:
+        raise HTTPException(400, "decision must be approve, reject or reset")
+    a.decided_at = now_iso() if d.decision != "reset" else ""
+    a.decided_note = d.note[:500]
+    store.save(w)
+    return a.model_dump()
+
+
+@app.post("/api/watch/{watch_id}/alerts/read", dependencies=[Depends(require_token)])
+def watch_alerts_read(watch_id: str):
+    w = _watch_or_404(watch_id)
+    for a in w.alerts:
+        a.read = True
+    store.save(w)
+    return {"ok": True}
+
+
+@app.get("/api/watch/{watch_id}/export.csv", dependencies=[Depends(require_token)])
+def watch_export(watch_id: str):
+    """Only APPROVED actions leave the system."""
+    w = _watch_or_404(watch_id)
+    titles = {n.id: n.title for n in w.narratives}
+    buf = io.StringIO()
+    wr = csv.writer(buf)
+    wr.writerow(["narrative", "kind", "title", "owner", "timing", "channel", "target_url", "approved_text", "approved_at", "reviewer_note"])
+    for a in w.actions:
+        if a.status == "approved":
+            wr.writerow([titles.get(a.narrative_id, ""), a.kind, a.title, a.owner, a.timing, a.channel, a.target_url,
+                         a.final_text, a.decided_at, a.decided_note])
+    return PlainTextResponse(buf.getvalue(), media_type="text/csv",
+                             headers={"Content-Disposition": f'attachment; filename="contagion-watch-{watch_id}-approved.csv"'})
 
 
 # ---------- static UI ----------

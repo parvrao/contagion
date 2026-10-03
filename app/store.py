@@ -18,7 +18,20 @@ def _load(text: str):
     if d.get("mode") == "counter":
         from .counter.models import CounterCase
         return CounterCase.model_validate(d)
+    if d.get("mode") == "watch":
+        from .watch.models import Watch
+        return Watch.model_validate(d)
     return Case.model_validate(d)
+
+
+def _row_label(d: dict) -> tuple[str, str]:
+    ci = d["input"]
+    mode = d.get("mode", "defend")
+    if mode == "counter":
+        return ci["our_brand"], f"vs. {ci['competitor']} {ci.get('competitor_product', '')}".strip()
+    if mode == "watch":
+        return ci["brand"], f"Live watch{': ' + ci['product'] if ci.get('product') else ''}"
+    return ci["brand"], ci["claim"]
 
 CASES_DIR = settings.data_dir / "cases"
 REPLAYS_DIR = settings.data_dir / "replays"
@@ -58,12 +71,10 @@ def list_cases() -> list[dict]:
             d = json.loads(p.read_text())
         except (OSError, json.JSONDecodeError):
             continue
-        ci = d["input"]
-        counter = d.get("mode") == "counter"
+        brand, claim = _row_label(d)
         rows.append({
             "id": d["id"], "mode": d.get("mode", "defend"),
-            "brand": ci["our_brand"] if counter else ci["brand"],
-            "claim": f"vs. {ci['competitor']} {ci.get('competitor_product', '')}".strip() if counter else ci["claim"],
+            "brand": brand, "claim": claim,
             "summary": d.get("summary", {}),
             "status": d["status"], "created_at": d["created_at"], "grade": d.get("grade", {}),
             "replay": d.get("replay", False),
@@ -76,11 +87,9 @@ def list_replays() -> list[dict]:
     for p in sorted(REPLAYS_DIR.glob("*.json")):
         try:
             d = json.loads(p.read_text())
-            ci = d["input"]
-            counter = d.get("mode") == "counter"
+            brand, claim = _row_label(d)
             out.append({"name": p.stem, "mode": d.get("mode", "defend"),
-                        "brand": ci["our_brand"] if counter else ci["brand"],
-                        "claim": f"vs. {ci['competitor']} {ci.get('competitor_product', '')}".strip() if counter else ci["claim"],
+                        "brand": brand, "claim": claim,
                         "recorded_at": d["created_at"]})
         except (OSError, json.JSONDecodeError, KeyError):
             continue

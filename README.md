@@ -4,7 +4,15 @@
 
 A rumor about a brand used to fade. Now it gets cited by AI answer engines and repeated as fact long after the news cycle ends. Contagion finds every public instance of a claim, maps how it moved across platforms, asks the AI engines what they say about it, and drafts the response. A person approves every action. Nothing is sent automatically.
 
-## The four stages
+## Watch mode (live brand threat monitor)
+
+Type a brand. Contagion pulls the last 7 days, then keeps polling (News, Hacker News, Bluesky every 90 s; YouTube and a Claude open-web sweep for TikTok, X, Reddit and forums about every 15 min). Every new mention is triaged (sentiment, threat type, severity, stance) and filed under a **narrative**. Each narrative gets a 0 to 100 threat score (severity, volume, velocity vs baseline, platform reach, news pickup, negativity, unanswered share) and a status (emerging, escalating, active, fading).
+
+Alerts fire when a serious narrative appears, crosses score 45 or 70, jumps platforms, reaches a news outlet or starts escalating. They show in the dashboard, as desktop notifications, and in Slack (`SLACK_WEBHOOK_URL`, internal only).
+
+Narratives scoring 45+ get a **response plan**: plain-English assessment, a response level (monitor, prepare, respond, escalate), what not to do, and owner-assigned actions with drafts (internal brief, holding statement, support macro, FAQ update, correction request). Every action is pending until a person approves, edits or rejects it. **Deep trace** runs the full four-stage pipeline below on any narrative.
+
+## The four stages (Deep trace)
 
 | Stage | What happens |
 |---|---|
