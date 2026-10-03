@@ -34,7 +34,7 @@ class WebSearchSource(Source):
     platform = "Web"
 
     def enabled(self) -> tuple[bool, str]:
-        return (True, "") if llm.available() else (False, "needs ANTHROPIC_API_KEY")
+        return (True, "") if llm.available() else (False, "needs ANTHROPIC_API_KEY or GEMINI_API_KEY")
 
     async def search(self, plan: SearchPlan) -> list[Item]:
         window = ""

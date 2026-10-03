@@ -51,7 +51,7 @@ async def triage(w: Watch, new: list[Mention], on_batch=None) -> list[Narrative]
         for m in new:
             created += _heuristic(w, m)
         return created
-    w.triage_mode = "claude"
+    w.triage_mode = llm.label()
     batches = [new[i:i + BATCH] for i in range(0, len(new), BATCH)]
     if not batches:
         return created

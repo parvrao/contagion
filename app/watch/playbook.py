@@ -67,7 +67,7 @@ async def build(w: Watch, n: Narrative) -> tuple[Playbook, list[WatchAction]]:
         try:
             data = await llm.complete_json(SYSTEM, _prompt(w, n, ev), max_tokens=3500)
             pb = Playbook(
-                by="claude", what=str(data.get("what", "")), who=str(data.get("who", "")),
+                by=llm.label(), what=str(data.get("what", "")), who=str(data.get("who", "")),
                 how_fast=str(data.get("how_fast", "")), why_it_matters=str(data.get("why_it_matters", "")),
                 response_level=data.get("response_level") if data.get("response_level") in ("monitor", "prepare", "respond", "escalate") else level_for(n.score),
                 level_reason=str(data.get("level_reason", "")),

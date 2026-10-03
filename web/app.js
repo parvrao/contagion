@@ -843,7 +843,7 @@ function drawWatchStatus() {
   const next = w.next_poll_at ? Math.max(0, Math.round((new Date(w.next_poll_at) - Date.now()) / 1000)) : null;
   const stage = w.stage === "waiting" && next !== null ? `next poll in ${next}s` : (STAGE_LABEL[w.stage] || w.stage) + "...";
   document.getElementById("w-meta").textContent = `WATCH · started ${day(w.created_at)} · cycle ${w.cycles}${live ? " · " + stage : ""}`;
-  document.getElementById("w-sub").innerHTML = `News, Hacker News and Bluesky every ${w.poll_seconds}s · YouTube and open-web sweep (TikTok, X, Reddit, forums via search) about every 15 min · triage: <b>${esc(w.triage_mode === "claude" ? "Claude" : w.triage_mode || "pending")}</b>${w.triage_mode === "keyword fallback" ? ' <span class="chip pending">add ANTHROPIC_API_KEY for full triage</span>' : ""}`;
+  document.getElementById("w-sub").innerHTML = `News, Hacker News and Bluesky every ${w.poll_seconds}s · YouTube and open-web sweep (TikTok, X, Reddit, forums via search) about every 15 min · triage: <b>${esc(w.triage_mode || "pending")}</b>${w.triage_mode === "keyword fallback" ? ' <span class="chip pending">add a Claude or Gemini key for full triage</span>' : ""}`;
   const ctr = document.getElementById("w-controls");
   const sig = `${w.status}|${w.replay}|${typeof Notification !== "undefined" ? Notification.permission : "na"}|${w.actions.filter((a) => a.status === "approved").length}`;
   if (ctr.dataset.sig === sig) return;
@@ -1000,7 +1000,7 @@ function drawDetail(force) {
         ${pb.watch_for.length ? `<div><h3>Change the plan if</h3><ul>${pb.watch_for.map((x) => `<li>${esc(x)}</li>`).join("")}</ul></div>` : ""}
       </div>
       <div class="panel-head"><h3>Recommended actions · ${acts.filter((a) => a.status === "pending").length} awaiting approval</h3>
-        <span class="small muted">${pb.by === "template" ? "template plan (add Claude key for a tailored one)" : "drafted by Claude"} · ${esc(ago(pb.generated_at))}</span></div>
+        <span class="small muted">${pb.by === "template" ? "template plan (add a Claude or Gemini key for a tailored one)" : `drafted by ${esc(pb.by)}`} · ${esc(ago(pb.generated_at))}</span></div>
       <div>${acts.map(watchActionCard).join("")}</div>`
     : `<div class="empty">No response plan yet. Plans are drafted automatically once a narrative's threat score reaches 45, or build one now.</div>`}
     <div class="detail-tools">

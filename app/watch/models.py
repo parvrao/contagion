@@ -76,7 +76,7 @@ class WatchAction(BaseModel):
 
 class Playbook(BaseModel):
     generated_at: str = Field(default_factory=now_iso)
-    by: str = "claude"           # claude | template
+    by: str = "Claude"           # Claude | Gemini | template
     what: str = ""
     who: str = ""
     how_fast: str = ""

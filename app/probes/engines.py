@@ -31,7 +31,7 @@ class ClaudeLive(Engine):
     name, mode = "Claude", "live web"
 
     def enabled(self):
-        return (True, "") if llm.available() else (False, "needs ANTHROPIC_API_KEY")
+        return (True, "") if settings.anthropic_api_key else (False, "needs ANTHROPIC_API_KEY")
 
     async def ask(self, question):
         return await llm.complete(NEUTRAL_SYSTEM, question, max_tokens=600, web_search=True, max_searches=3)
@@ -42,7 +42,7 @@ class ClaudeMemory(Engine):
     name, mode = "Claude", "model memory"
 
     def enabled(self):
-        return (True, "") if llm.available() else (False, "needs ANTHROPIC_API_KEY")
+        return (True, "") if settings.anthropic_api_key else (False, "needs ANTHROPIC_API_KEY")
 
     async def ask(self, question):
         return await llm.complete(NEUTRAL_SYSTEM, question, max_tokens=500)

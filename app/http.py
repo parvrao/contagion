@@ -20,7 +20,8 @@ import os
 
 PER_HOST_LIMIT = int(os.environ.get("CONTAGION_PER_HOST_LIMIT", "4"))
 # LLM calls are long (web search turns run 30 to 90 s); a cap of 4 serializes the run.
-HOST_LIMITS = {"api.anthropic.com": int(os.environ.get("CONTAGION_LLM_CONCURRENCY", "10"))}
+HOST_LIMITS = {"api.anthropic.com": int(os.environ.get("CONTAGION_LLM_CONCURRENCY", "10")),
+               "generativelanguage.googleapis.com": int(os.environ.get("CONTAGION_GEMINI_CONCURRENCY", "2"))}  # free tier is ~10 requests/min
 
 
 class UpstreamError(RuntimeError):

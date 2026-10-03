@@ -116,7 +116,7 @@ def test_claude_triage_path(monkeypatch):
     run(engine.cycle(w, sources=[(FakeSky(), 1)]))
     n = w.narratives[0]
     assert n.title == "Surge pricing rumor" and n.claim == "Acme will add surge pricing"
-    assert n.playbook and n.playbook.by == "claude" and n.playbook.response_level == "respond"
+    assert n.playbook and n.playbook.by in ("Claude", "Gemini") and n.playbook.response_level == "respond"
     a = w.actions[0]
     assert a.target_url == "" and any("Link not in evidence" in f for f in a.flags)
 

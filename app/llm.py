@@ -16,8 +16,49 @@ class LLMUnavailable(RuntimeError):
     pass
 
 
+def provider() -> str:
+    """Claude when ANTHROPIC_API_KEY is set; otherwise Gemini (free tier) when GEMINI_API_KEY is set."""
+    if settings.anthropic_api_key:
+        return "anthropic"
+    if settings.gemini_api_key:
+        return "gemini"
+    return ""
+
+
+def label() -> str:
+    return "Gemini" if provider() == "gemini" else "Claude"
+
+
 def available() -> bool:
-    return bool(settings.anthropic_api_key)
+    return bool(provider())
+
+
+GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
+
+
+async def _gemini(system: str, user: str, *, max_tokens: int, temperature: float, search: bool, json_mode: bool = False):
+    body: dict = {
+        "systemInstruction": {"parts": [{"text": system}]},
+        "contents": [{"role": "user", "parts": [{"text": user}]}],
+        "generationConfig": {"temperature": temperature, "maxOutputTokens": max(max_tokens, 2048)},
+    }
+    if search:
+        body["tools"] = [{"google_search": {}}]
+    elif json_mode:
+        body["generationConfig"]["responseMimeType"] = "application/json"
+    data = await http.post_json(
+        GEMINI_URL.format(model=settings.gemini_model), body,
+        headers={"x-goog-api-key": settings.gemini_api_key, "content-type": "application/json"}, timeout=120.0,
+    )
+    cand = (data.get("candidates") or [{}])[0]
+    text = "".join(p.get("text", "") for p in cand.get("content", {}).get("parts", []) if not p.get("thought"))
+    results = []
+    for chunk in (cand.get("groundingMetadata") or {}).get("groundingChunks", []):
+        web = chunk.get("web") or {}
+        if web.get("uri"):
+            # Gemini returns redirect URIs; the title holds the publisher domain.
+            results.append({"url": web["uri"], "title": web.get("title", ""), "page_age": ""})
+    return text.strip(), _dedupe(results)
 
 
 async def complete(
@@ -31,7 +72,9 @@ async def complete(
 ) -> tuple[str, list[dict]]:
     """Return (text, citations). Citations are [{url, title}] from web search."""
     if not available():
-        raise LLMUnavailable("ANTHROPIC_API_KEY is not set")
+        raise LLMUnavailable("Set ANTHROPIC_API_KEY or GEMINI_API_KEY")
+    if provider() == "gemini":
+        return await _gemini(system, user, max_tokens=max_tokens, temperature=temperature, search=web_search)
 
     payload: dict = {
         "model": settings.anthropic_model,
@@ -79,7 +122,9 @@ async def complete(
 async def search_results(system: str, user: str, *, max_searches: int = 5) -> tuple[str, list[dict]]:
     """Run a web-search turn and return every result the model saw (not only cited ones)."""
     if not available():
-        raise LLMUnavailable("ANTHROPIC_API_KEY is not set")
+        raise LLMUnavailable("Set ANTHROPIC_API_KEY or GEMINI_API_KEY")
+    if provider() == "gemini":
+        return await _gemini(system, user, max_tokens=1200, temperature=0.0, search=True)
     payload = {
         "model": settings.anthropic_model,
         "max_tokens": 1200,
@@ -106,6 +151,9 @@ async def search_results(system: str, user: str, *, max_searches: int = 5) -> tu
 
 
 async def complete_json(system: str, user: str, *, max_tokens: int = 3000):
+    if provider() == "gemini":
+        text, _ = await _gemini(system + "\n\nRespond with JSON only.", user, max_tokens=max_tokens, temperature=0.0, search=False, json_mode=True)
+        return parse_json(text)
     text, _ = await complete(
         system + "\n\nRespond with JSON only. No prose, no markdown fences.",
         user,
