@@ -843,7 +843,7 @@ function drawWatchStatus() {
   const next = w.next_poll_at ? Math.max(0, Math.round((new Date(w.next_poll_at) - Date.now()) / 1000)) : null;
   const stage = w.stage === "waiting" && next !== null ? `next poll in ${next}s` : (STAGE_LABEL[w.stage] || w.stage) + "...";
   document.getElementById("w-meta").textContent = `WATCH · started ${day(w.created_at)} · cycle ${w.cycles}${live ? " · " + stage : ""}`;
-  document.getElementById("w-sub").innerHTML = `News, Hacker News and Bluesky every ${w.poll_seconds}s · YouTube and open-web sweep (TikTok, X, Reddit, forums via search) about every 15 min · triage: <b>${esc(w.triage_mode || "pending")}</b>${w.triage_mode === "keyword fallback" ? ' <span class="chip pending">add a Claude or Gemini key for full triage</span>' : ""}<br>AI answer check (Profound): <b>${esc(w.ai_status || "pending")}</b>`;
+  document.getElementById("w-sub").innerHTML = `News, Hacker News and Bluesky every ${w.poll_seconds}s · YouTube and open-web sweep (TikTok, X, Reddit, forums via search) about every 15 min · triage: <b>${esc(w.triage_mode || "pending")}</b>${w.triage_mode === "keyword fallback" ? ' <span class="chip pending">add a Claude or Gemini key for full triage</span>' : ""}<br>AI answer check (Profound): <b>${esc(w.ai_status || "pending")}</b> · team alerts: <b>${esc((w.channels || []).join(", ") || "in-app only (set SLACK_WEBHOOK_URL)")}</b>`;
   const ctr = document.getElementById("w-controls");
   const sig = `${w.status}|${w.replay}|${typeof Notification !== "undefined" ? Notification.permission : "na"}|${w.actions.filter((a) => a.status === "approved").length}`;
   if (ctr.dataset.sig === sig) return;
@@ -854,6 +854,7 @@ function drawWatchStatus() {
     <button class="btn small" data-ctl="poll">Poll now</button>
     <button class="btn small secondary" data-ctl="${w.status === "paused" ? "resume" : "pause"}">${w.status === "paused" ? "Resume" : "Pause"}</button>
     ${typeof Notification !== "undefined" && Notification.permission !== "granted" ? `<button class="btn small secondary" id="w-notify">Enable desktop alerts</button>` : ""}
+    ${(w.channels || []).length ? `<button class="btn small secondary" id="w-test">Send top threat to ${esc(w.channels.join(" + "))}</button>` : ""}
     <button class="btn small secondary" id="w-save">Save replay</button>
     <a class="btn small secondary" href="/api/watch/${esc(w.id)}/export.csv${tok}" ${approved ? "" : `aria-disabled="true" style="pointer-events:none;opacity:.4"`}>Export ${approved} approved</a>`;
   ctr.querySelectorAll("[data-ctl]").forEach((b) => b.addEventListener("click", async () => {
@@ -862,6 +863,12 @@ function drawWatchStatus() {
     loadWatch(w.id);
   }));
   document.getElementById("w-notify")?.addEventListener("click", async () => { await Notification.requestPermission(); ctr.dataset.sig = ""; drawWatchStatus(); });
+  document.getElementById("w-test")?.addEventListener("click", async (e) => {
+    e.target.disabled = true; e.target.textContent = "Sending...";
+    try { const r = await api(`/api/watch/${w.id}/test-alert`, { method: "POST" }); e.target.textContent = r.delivered.length ? `Sent to ${r.delivered.join(", ")}` : "Not delivered: see log"; }
+    catch (err) { e.target.textContent = err.message; }
+    setTimeout(() => { ctr.dataset.sig = ""; drawWatchStatus(); }, 4000);
+  });
   document.getElementById("w-save")?.addEventListener("click", async (e) => {
     const name = `${w.input.brand}-watch`.toLowerCase().replace(/[^a-z0-9-]+/g, "-");
     const { name: saved } = await api(`/api/cases/${w.id}/save-replay`, { method: "POST", body: JSON.stringify({ name }) });
@@ -917,7 +924,9 @@ function drawBoard() {
   document.getElementById("w-narr-note").textContent = w.narratives.length ? `${threats.length} threats · ${low.length} low-risk` : "";
   const board = document.getElementById("w-board");
   if (!w.narratives.length) {
-    board.innerHTML = `<div class="empty card">${w.cycles ? "No narratives yet. New mentions are read as they arrive." : "First sweep running: pulling the last 7 days of public mentions..."}</div>`;
+    const errs = Object.entries(w.sources_status || {}).filter(([, v]) => !v.startsWith("ok"));
+    board.innerHTML = `<div class="empty card">${w.cycles && w.stage === "waiting" ? "No mentions found yet." : "First sweep running: pulling the last 7 days of public mentions, then reading every one..."}
+      ${errs.length ? `<ul class="flags" style="margin-top:8px">${errs.map(([k, v]) => `<li>${esc(k)}: ${esc(v)}</li>`).join("")}</ul>` : ""}</div>`;
     return;
   }
   board.innerHTML = `<div class="board">${threats.map(narrCard).join("") || `<div class="empty card">No threat narratives right now. Low-risk chatter is below.</div>`}</div>

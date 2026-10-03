@@ -7,11 +7,34 @@ from ..models import Item
 from .base import SearchPlan, Source, in_window
 
 
+import os
+import time
+
+_session: dict = {"jwt": "", "exp": 0.0}
+
+
+async def _token() -> str:
+    handle, pw = os.environ.get("BSKY_HANDLE", ""), os.environ.get("BSKY_APP_PASSWORD", "")
+    if not (handle and pw):
+        return ""
+    if _session["jwt"] and _session["exp"] > time.time():
+        return _session["jwt"]
+    data = await http.post_json("https://bsky.social/xrpc/com.atproto.server.createSession", {"identifier": handle, "password": pw})
+    _session.update(jwt=data["accessJwt"], exp=time.time() + 60 * 50)
+    return _session["jwt"]
+
+
 class BlueskySource(Source):
     name = "bluesky"
     platform = "Bluesky"
 
+    def enabled(self) -> tuple[bool, str]:
+        if os.environ.get("BSKY_HANDLE") and os.environ.get("BSKY_APP_PASSWORD"):
+            return True, ""
+        return False, "Bluesky search now needs a login: set BSKY_HANDLE and BSKY_APP_PASSWORD (Settings > App passwords)"
+
     async def search(self, plan: SearchPlan) -> list[Item]:
+        jwt = await _token()
         items: dict[str, Item] = {}
         for q in plan.queries[:3]:
             params = {"q": q, "limit": min(plan.limit, 100), "sort": plan.extra.get("sort", "top")}
@@ -19,7 +42,8 @@ class BlueskySource(Source):
                 params["since"] = f"{plan.since}T00:00:00Z"
             if plan.until:
                 params["until"] = f"{plan.until}T23:59:59Z"
-            data = await http.get_json("https://public.api.bsky.app/xrpc/app.bsky.feed.searchPosts", params=params)
+            data = await http.get_json("https://bsky.social/xrpc/app.bsky.feed.searchPosts", params=params,
+                                       headers={"Authorization": f"Bearer {jwt}"})
             for p in data.get("posts", []):
                 handle = p.get("author", {}).get("handle", "")
                 rkey = p.get("uri", "").rsplit("/", 1)[-1]

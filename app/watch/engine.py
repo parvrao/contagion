@@ -16,6 +16,7 @@ from .. import http, store
 from ..models import LogLine, now_iso
 from ..sources.base import SearchPlan
 from ..sources.bluesky import BlueskySource
+from ..sources.gdelt import GdeltSource
 from ..sources.gnews import GoogleNewsSource
 from ..sources.hackernews import HackerNewsSource
 from ..sources.reddit import RedditSource
@@ -32,6 +33,7 @@ AI_EVERY = int(os.environ.get("CONTAGION_AI_EVERY", "7"))   # Profound check eve
 # (source, run every N cycles)
 CADENCE = [
     (GoogleNewsSource(), 1),
+    (GdeltSource(), 2),
     (HackerNewsSource(), 1),
     (BlueskySource(), 1),
     (RedditSource(), 5),
@@ -60,9 +62,14 @@ def norm(url: str) -> str:
     return url
 
 
+THREAT_TERMS = "recall OR lawsuit OR boycott OR backlash OR controversy OR banned OR scandal OR investigation OR complaints OR outrage"
+
+
 def queries(w: Watch) -> list[str]:
+    """Brand query, a threat-seeking query (so issues surface first), then product and custom keywords."""
     b = w.input.brand.strip()
-    qs = [f'"{b}"' if " " in b else b]
+    qb = f'"{b}"' if " " in b else b
+    qs = [qb, f"{qb} ({THREAT_TERMS})"]
     if w.input.product:
         qs.append(f"{b} {w.input.product}".strip())
     qs += [k.strip() for k in w.input.keywords if k.strip()]
@@ -128,7 +135,8 @@ async def cycle(w: Watch, sources=None) -> None:
         now = datetime.now(timezone.utc)
         since = (now - timedelta(days=7 if first else 2)).strftime("%Y-%m-%d")
         plan = SearchPlan(brand=w.input.brand, claim=f"latest public discussion, complaints, rumors or controversies about {w.input.brand}",
-                          queries=queries(w), since=since, limit=40, extra={"sort": "latest"})
+                          queries=queries(w), since=since, limit=40,
+                          extra={"sort": "latest", "days": 7 if first else 2, "gdelt_queries": queries(w)[:2]})
 
         due = []
         for src, every in (sources or CADENCE):
@@ -252,22 +260,45 @@ def dashboard_url(w: Watch) -> str:
 
 
 async def deliver(w: Watch, alerts: list[Alert]) -> None:
-    """Internal team alert only. The playbook still needs a person to approve anything external."""
-    hook = os.environ.get("SLACK_WEBHOOK_URL", "").strip()
-    if not hook:
-        return
+    """Internal team alerts only (Slack, Discord, Teams, Zapier/Make or any JSON webhook).
+    The response plan still needs a person to approve anything external."""
     link = dashboard_url(w)
-    icon = {"critical": ":red_circle:", "warn": ":large_orange_circle:", "info": ":white_circle:"}
+    icon = {"critical": "🔴", "warn": "🟠", "info": "⚪"}
     lines = [f"*Contagion watch: {w.input.brand}*"] + [f"{icon.get(a.level, '')} *{a.title}*  {a.reason}" for a in alerts]
+    plan = next((n.playbook for n in w.narratives if alerts and n.id == alerts[0].narrative_id and n.playbook), None)
+    if plan:
+        lines.append(f"Recommended: *{plan.response_level.upper()}*  {plan.level_reason}")
     if link:
         lines.append(f"<{link}|Open dashboard> (nothing is sent until a person approves)")
-    try:
-        await http.post_json(hook, {"text": "\n".join(lines)}, attempts=2)
-        for a in alerts:
-            a.delivered.append("slack")
+    text = "\n".join(lines)
+    targets = []
+    if os.environ.get("SLACK_WEBHOOK_URL", "").strip():
+        targets.append(("slack", os.environ["SLACK_WEBHOOK_URL"].strip(), {"text": text}))
+    hook = os.environ.get("ALERT_WEBHOOK_URL", "").strip()
+    if hook:
+        if "discord.com/api/webhooks" in hook:
+            body = {"content": text.replace("*", "**")[:1900]}
+        else:   # Teams, Zapier, Make, n8n, custom: plain text plus structured alerts
+            body = {"text": text, "brand": w.input.brand, "dashboard": link, "alerts": [a.model_dump() for a in alerts]}
+        targets.append(("webhook", hook, body))
+    for name, url, body in targets:
+        try:
+            await http.post_json(url, body, attempts=2) if name != "slack" else await http.request("POST", url, json=body, attempts=2)
+            for a in alerts:
+                a.delivered.append(name)
+        except Exception as exc:  # noqa: BLE001
+            _log(w, "alert", f"{name} delivery failed: {str(exc)[:140]}", "warn")
+    if targets:
         store.save(w)
-    except Exception as exc:  # noqa: BLE001
-        _log(w, "alert", f"Slack delivery failed: {str(exc)[:140]}", "warn")
+
+
+def channels() -> list[str]:
+    out = []
+    if os.environ.get("SLACK_WEBHOOK_URL", "").strip():
+        out.append("Slack")
+    if os.environ.get("ALERT_WEBHOOK_URL", "").strip():
+        out.append("Discord" if "discord.com" in os.environ["ALERT_WEBHOOK_URL"] else "Webhook")
+    return out
 
 
 def resume_all() -> None:

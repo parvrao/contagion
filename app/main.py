@@ -317,7 +317,23 @@ def get_watch(watch_id: str):
     w = _watch_or_404(watch_id)
     d = w.model_dump()
     d["live"] = watch_engine.is_running(w.id)
+    d["channels"] = watch_engine.channels()
     return d
+
+
+@app.post("/api/watch/{watch_id}/test-alert", dependencies=[Depends(require_token)])
+async def watch_test_alert(watch_id: str):
+    """Send the current top threat to the team channels, so you can see the alert land."""
+    from .watch.models import Alert
+    w = _watch_or_404(watch_id)
+    if not watch_engine.channels():
+        raise HTTPException(400, "No alert channel set. Add SLACK_WEBHOOK_URL or ALERT_WEBHOOK_URL in the environment.")
+    top = next((n for n in w.narratives if n.threat_type != "praise"), None)
+    a = Alert(narrative_id=top.id if top else "", level="critical" if top and top.score >= 70 else "warn",
+              title=f"Top threat: {top.title}" if top else "Contagion test alert",
+              reason=(f"Threat score {top.score}/100, {top.count} mentions on {', '.join(top.platforms)}." if top else "Channel check."))
+    await watch_engine.deliver(w, [a])
+    return {"delivered": a.delivered}
 
 
 class WatchControl(BaseModel):

@@ -56,6 +56,7 @@ class WebSearchSource(Source):
                 continue
             text, raw = res
             seen_urls = {r["url"].rstrip("/") for r in raw}
+            seen_hosts = {(r.get("title") or "").lower().removeprefix("www.") for r in raw}
             described = []
             try:
                 parsed = llm.parse_json(text)
@@ -65,7 +66,7 @@ class WebSearchSource(Source):
             # Described rows: only keep URLs that really came back from search.
             for row in described:
                 url = str(row.get("url", "")).strip()
-                if not url or url.rstrip("/") not in seen_urls:
+                if not url or (url.rstrip("/") not in seen_urls and domain_of(url) not in seen_hosts):
                     continue
                 published = _iso(row.get("published", ""))
                 if not in_window(published, plan):
@@ -78,8 +79,8 @@ class WebSearchSource(Source):
                 )
             for r in raw:
                 url = r["url"]
-                if url in items:
-                    continue
+                if url in items or "vertexaisearch.cloud.google.com" in url:
+                    continue   # Gemini redirect links carry no content; the described rows above cover them
                 items[url] = Item(
                     platform=platform_for(url), url=url, domain=domain_of(url), title=r.get("title", "")[:300],
                     published_at=_iso(r.get("page_age", "")), query=f"web:{sweep}", date_source="search index",
