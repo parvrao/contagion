@@ -30,6 +30,7 @@ class WatchInput(BaseModel):
     domain: str = Field(default="", max_length=200)
     keywords: list[str] = Field(default_factory=list)
     position: str = Field(default="", max_length=2000, description="Optional brand facts drafts may use")
+    brand_audience: int = Field(default=0, ge=0, description="Followers/reach of the brand's main channel; 0 = unknown")
 
 
 class Mention(BaseModel):
@@ -72,6 +73,7 @@ class WatchAction(BaseModel):
     decided_at: str = ""
     decided_note: str = ""
     flags: list[str] = Field(default_factory=list)
+    raci: dict = Field(default_factory=dict)
 
 
 class Playbook(BaseModel):
@@ -85,6 +87,16 @@ class Playbook(BaseModel):
     level_reason: str = ""
     do_not: list[str] = Field(default_factory=list)
     watch_for: list[str] = Field(default_factory=list)
+    # How true is the claim (decided before any plan)
+    veracity: str = "unclear"    # false | misframed | true_unflattering | opinion | unclear
+    true_part: str = ""
+    missing_context: str = ""
+    veracity_basis: str = ""
+    # Would replying amplify it? (computed, not model-written)
+    amplification: dict = Field(default_factory=dict)
+    original_source: dict = Field(default_factory=dict)   # {url, author, platform, why}
+    scct: dict = Field(default_factory=dict)              # crisis cluster + response strategy (Coombs)
+    stakeholders: list[dict] = Field(default_factory=list)  # Mendelow power/interest grid
 
 
 class Narrative(BaseModel):

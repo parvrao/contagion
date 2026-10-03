@@ -365,12 +365,15 @@ def control_watch(watch_id: str, c: WatchControl):
 
 class PositionBody(BaseModel):
     position: str = ""
+    brand_audience: int | None = None
 
 
 @app.post("/api/watch/{watch_id}/position", dependencies=[Depends(require_token)])
 def set_position(watch_id: str, body: PositionBody):
     w = _watch_or_404(watch_id)
     w.input.position = body.position[:2000]
+    if body.brand_audience is not None:
+        w.input.brand_audience = max(0, int(body.brand_audience))
     store.save(w)
     return {"ok": True}
 

@@ -43,6 +43,18 @@ Guardrails: competitor names/products in copy **block approval** until edited; n
 
 Sample data: `data/samples/` has a fictional brand ("Northpace") as Counter CSV and as a Shopify product import file.
 
+## Response judgment (Watch plans)
+
+Contagion tells you when to stay quiet, and when you do act, it corrects the record where people check later instead of arguing in threads.
+
+1. **How true is it?** Every plan first classifies the claim: false, misframed (real fact, wrong conclusion), true but unflattering, opinion, or unclear. It records the true part and the missing context. Drafts that deny a misframed or true claim are flagged.
+2. **Would replying amplify it?** Rumor reach (engagement on the posts found, a lower bound) vs. the brand's audience. Staying quiet is the default until the rumor reaches the news on 3+ platforms or a tenth of the brand's audience; the plan lists the triggers that would change that and how much extra exposure silence avoided. Safety, legal and outage issues are never silenced.
+3. **Channel order:** (1) the page AI engines and search will cite, checked with Profound and the AI engine check, (2) the original high-reach source (Deep trace's earliest post when available), (3) platform tools such as Community Notes and journalist corrections, (4) a public reply, held under a stay-quiet verdict.
+4. **Fixed don'ts in every plan:** don't repeat the rumor's wording (checked automatically), don't argue in replies, don't deny the true parts, don't respond before the rumor has a big enough audience.
+5. **Frameworks, each driving a decision:** SCCT (Coombs) picks the response strategy from the claim's veracity: deny only a false rumor, diminish a misframed one, rebuild for a true failure, listen to opinion, confirm facts first when unclear. A Mendelow power/interest grid says who to brief first. Every action carries RACI (Legal is always Consulted on anything public).
+
+Counter ads also carry a positioning statement (Moore's template, filled only from verified inputs) and unit economics: gross profit per unit, suggested spend, units to cover it, and days to clear the surplus at today's pace with the holding cost of waiting.
+
 ## Run locally
 
 ```bash

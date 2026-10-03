@@ -242,3 +242,16 @@ def test_spike_against_real_baseline(monkeypatch):
     assert qd.baseline_week == 1.0 and qd.recent_7d == 8
     assert qd.spike == 4.5 and qd.spiking and not qd.new_signal
     assert qd.engagement_spike == 40.0     # 400 this week vs 10/week baseline
+
+
+def test_positioning_and_unit_economics(monkeypatch):
+    fake_llm(monkeypatch)
+    case = run(monkeypatch)
+    m = case.actions[0].meta
+    assert m["positioning"].startswith("For waterproof running shoes buyers frustrated by quality defect problems, Northpace Stormline Runner is the choice in waterproof running shoes")
+    assert '"seam-sealed membrane upper"' in m["positioning"]
+    ue = m["unit_economics"]
+    assert ue["unit_gross_profit"] == 83.0 and ue["campaign_spend"] == round(m["suggested_daily_budget"] * 30, 2)
+    assert ue["breakeven_units"] == -(-ue["campaign_spend"] // 83)
+
+    assert ue["days_to_clear_without_ads"] == round(344 / (96 / 28))

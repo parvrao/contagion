@@ -116,9 +116,12 @@ def test_claude_triage_path(monkeypatch):
     run(engine.cycle(w, sources=[(FakeSky(), 1)]))
     n = w.narratives[0]
     assert n.title == "Surge pricing rumor" and n.claim == "Acme will add surge pricing"
-    assert n.playbook and n.playbook.by in ("Claude", "Gemini") and n.playbook.response_level == "respond"
-    a = w.actions[0]
+    # One platform, no news: the amplification check holds the model's "respond" at "prepare".
+    assert n.playbook and n.playbook.by in ("Claude", "Gemini") and n.playbook.response_level == "prepare"
+    assert n.playbook.amplification["verdict"] == "stay_quiet" and n.playbook.amplification["triggers"]
+    a = next(x for x in w.actions if x.kind == "holding_statement")
     assert a.target_url == "" and any("Link not in evidence" in f for f in a.flags)
+    assert a.timing.startswith("Hold") and "Held: stay-quiet recommendation" in a.flags
 
 
 def test_api_roundtrip(monkeypatch):

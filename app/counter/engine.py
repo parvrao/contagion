@@ -436,6 +436,8 @@ async def _draft(case: CounterCase, m: Match) -> Action | None:
             "brief": m.brief,
             "substantiation": [f"{f['fact']}: {f['value']} ({f['source_url']}, checked {f['checked_on']})" for f in used_facts],
             "spike": c.spike, "spiking": c.spiking,
+            "positioning": positioning(ci, c, s, m),
+            "unit_economics": unit_economics(s, budget, ci.campaign_days),
         },
     )
 
@@ -458,3 +460,33 @@ def guard_ad(text: str, ci, s) -> list[str]:
         if num.rstrip("%") not in allowed:
             flags.append(f"number '{num}' is not in the product data or verified competitor facts: verify or remove")
     return sorted(set(flags))
+
+
+def positioning(ci, c, s, m) -> str:
+    """Geoffrey Moore's positioning template, filled only with verified inputs (no model text)."""
+    cat = ci.category or "product"
+    return (f"For {cat} buyers frustrated by {c.friction} problems, {s.name} {s.variant}".strip()
+            + f" is the choice in {cat} that offers \"{m.evidence}\", unlike what they're using now.")
+
+
+def unit_economics(s, daily_budget: float, days: int) -> dict:
+    """Arithmetic on inventory data: what has to sell for the suggested spend to pay off."""
+    import math
+    if s.unit_cost is None or s.price <= s.unit_cost:
+        return {"note": "Unit cost missing or no gross profit: can't compute break-even."}
+    unit_profit = round(s.price - s.unit_cost, 2)
+    spend = round(daily_budget * days, 2)
+    be_units = math.ceil(spend / unit_profit) if spend else 0
+    daily = s.units_sold_window / s.window_days if s.window_days else 0
+    days_to_clear = round(s.surplus_units / daily) if daily else None
+    wait_cost = round((s.holding_cost_month or 0) * days_to_clear / 30, 2) if days_to_clear is not None else None
+    return {
+        "unit_gross_profit": unit_profit,
+        "campaign_spend": spend,
+        "breakeven_units": be_units,
+        "days_to_clear_without_ads": days_to_clear,       # None = no sales at all in the window
+        "holding_cost_of_waiting": wait_cost,
+        "profit_after_max_cac_per_unit": round(unit_profit - (s.max_cac or 0), 2),
+        "cac_payback": "Immediate: each sale at or under max CAC returns its ad cost on the first order (no repeat purchase assumed).",
+        "holding_cost_saved_per_month_if_cleared": s.holding_cost_month,
+    }

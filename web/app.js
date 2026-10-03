@@ -732,7 +732,15 @@ function adMeta(m) {
   if (!m) return "";
   const subst = (m.substantiation || []).length ? `<div class="small" style="margin:-4px 0 10px"><b>Comparison backed by:</b> ${m.substantiation.map(esc).join("; ")}</div>` : "";
   const brief = m.brief ? `<details class="brief"><summary>What the model saw (structured brief)</summary><pre>${esc(JSON.stringify(m.brief, null, 2))}</pre></details>` : "";
-  return subst + brief + `<div class="admeta">
+  const ue = m.unit_economics || {};
+  const pos = m.positioning ? `<div class="positioning"><span class="action-kind">Positioning</span> ${esc(m.positioning)}</div>` : "";
+  const econ = ue.unit_gross_profit ? `<div class="econ">
+    <div><div class="v">${money(ue.unit_gross_profit)}</div><div class="k">gross profit per unit</div></div>
+    <div><div class="v">${money0(ue.campaign_spend)}</div><div class="k">suggested spend over the campaign</div></div>
+    <div><div class="v">${ue.breakeven_units.toLocaleString()}</div><div class="k">units to sell to cover the spend</div></div>
+    <div><div class="v">${ue.days_to_clear_without_ads == null ? "never" : ue.days_to_clear_without_ads + " days"}</div><div class="k">to clear surplus at today's pace, no ads${ue.holding_cost_of_waiting != null ? ` (${money0(ue.holding_cost_of_waiting)} holding cost)` : ""}</div></div>
+  </div>` : "";
+  return pos + subst + brief + econ + `<div class="admeta">
     <span><b>${esc(m.sku)}</b></span><span>${m.units_on_hand} on hand</span><span>${m.surplus_units} surplus</span>
     <span>${m.days_of_inventory == null ? "no recent sales" : `${m.days_of_inventory} days of supply`}</span>
     <span>margin ${m.margin_pct}%</span><span>max CAC ${money(m.max_cac)}</span>
@@ -743,7 +751,13 @@ function adMeta(m) {
 // ================= Watch mode (live brand monitor) =================
 const W = { data: null, sel: null, filter: "all", seen: new Set(), firstLoad: true, timer: null, poll: null, refresh: null, showLow: false, tracing: false };
 const LEVEL_LABEL = { monitor: "Monitor", prepare: "Prepare", respond: "Respond", escalate: "Escalate" };
-const WKIND = { holding_statement: "Holding statement", social_reply: "Social reply", support_macro: "Support macro", faq_update: "FAQ / site update",
+const VERACITY = { false: ["False", "fabricated outright"], misframed: ["Misframed", "real fact, wrong conclusion"],
+  true_unflattering: ["True but unflattering", "accurate, just bad for the brand"], opinion: ["Opinion", "a take, not a factual claim"],
+  unclear: ["Unclear", "needs a fact check before anyone speaks"] };
+const TIER = { internal_brief: 0, faq_update: 1, correction_request: 2, community_note: 3, support_macro: 3, task: 3, holding_statement: 4, social_reply: 4 };
+const TIER_LABEL = ["Prep", "1 · Where people check later: AI answers and search", "2 · The original source", "3 · Platform tools", "4 · Public reply (last resort)"];
+const AMP = { stay_quiet: "Stay quiet (for now)", public_ok: "Public reply is OK", act: "Act now" };
+const WKIND = { community_note: "Community note", holding_statement: "Holding statement", social_reply: "Social reply", support_macro: "Support macro", faq_update: "AI answer page",
   correction_request: "Correction request", internal_brief: "Internal brief", task: "Task" };
 const STAGE_LABEL = { starting: "Starting", polling: "Polling sources", triage: "Reading new mentions", playbook: "Drafting playbook", ai_check: "Checking AI answers (Profound)", waiting: "Listening" };
 
@@ -775,6 +789,8 @@ function watchForm() {
         <div class="field"><label for="w-kw">Extra keywords <span class="hint">comma separated</span></label><input id="w-kw" name="keywords" placeholder="e.g. stanley cup lead, stanley recall"></div>
         <div class="field"><label for="w-pos">Verified brand facts <span class="hint">drafts may use these; anything else becomes a [CONFIRM] placeholder</span></label>
         <textarea id="w-pos" name="position" rows="3" maxlength="2000"></textarea></div>
+        <div class="field"><label for="w-aud">Brand audience <span class="hint">followers on your main channel; used to judge whether replying would amplify a rumor</span></label>
+        <input id="w-aud" name="brand_audience" type="number" min="0" step="1000" placeholder="e.g. 2000000"></div>
       </details>
       <div id="form-error"></div>
     </form>
@@ -791,6 +807,7 @@ function wireWatchForm() {
     e.preventDefault();
     const body = Object.fromEntries(new FormData(e.target).entries());
     body.keywords = (body.keywords || "").split(",").map((s) => s.trim()).filter(Boolean);
+    if ("brand_audience" in body) body.brand_audience = Number(body.brand_audience) || 0;
     const btn = e.target.querySelector("button[type=submit]");
     btn.disabled = true; btn.textContent = "Starting...";
     try {
@@ -890,7 +907,9 @@ function drawWatchStatus() {
   const next = w.next_poll_at ? Math.max(0, Math.round((new Date(w.next_poll_at) - Date.now()) / 1000)) : null;
   const stage = w.stage === "waiting" && next !== null ? `next poll in ${next}s` : (STAGE_LABEL[w.stage] || w.stage) + "...";
   document.getElementById("w-meta").textContent = `WATCH · started ${day(w.created_at)} · cycle ${w.cycles}${live ? " · " + stage : ""}`;
-  document.getElementById("w-sub").innerHTML = `Listening across news, forums, video and the open web · checks every ${w.poll_seconds}s${(w.channels || []).length ? ` · alerts to ${esc(w.channels.join(", "))}` : ""}`;
+  const qs = quietStats(w);
+  document.getElementById("w-sub").innerHTML = `Listening across news, forums, video and the open web · checks every ${w.poll_seconds}s${(w.channels || []).length ? ` · alerts to ${esc(w.channels.join(", "))}` : ""}`
+    + (qs.plans ? ` · <b>recommended staying quiet on ${qs.quiet} of ${qs.plans} narrative${qs.plans === 1 ? "" : "s"}</b>${qs.avoided ? `, avoiding up to ${qs.avoided.toLocaleString()} extra exposures` : ""}` : "");
   const ctr = document.getElementById("w-controls");
   const sig = `${w.status}|${w.replay}|${typeof Notification !== "undefined" ? Notification.permission : "na"}|${w.actions.filter((a) => a.status === "approved").length}`;
   if (ctr.dataset.sig === sig) return;
@@ -1048,6 +1067,7 @@ function drawDetail(force) {
     ${aiBlock(n)}
     ${pb ? `
       <div class="level-row lvl-bg-${esc(pb.response_level)}"><div class="lvl-name">${esc(LEVEL_LABEL[pb.response_level])}</div><div>${esc(pb.level_reason)}</div></div>
+      ${judgmentBlocks(pb)}
       <dl class="assess">
         <div><dt>What's being said</dt><dd>${esc(pb.what)}</dd></div>
         <div><dt>Who's carrying it</dt><dd>${esc(pb.who)}</dd></div>
@@ -1060,13 +1080,15 @@ function drawDetail(force) {
       </div>
       <div class="panel-head"><h3>Recommended actions · ${acts.filter((a) => a.status === "pending").length} awaiting approval</h3>
         <span class="small muted">${pb.by === "template" ? "standard plan" : `drafted by ${esc(pb.by)}`} · ${esc(ago(pb.generated_at))}</span></div>
-      <div>${acts.map(watchActionCard).join("")}</div>`
+      <div>${groupByTier(acts)}</div>`
     : `<div class="empty">No response plan yet. Plans are drafted automatically once a narrative's threat score reaches 45, or build one now.</div>`}
     <div class="detail-tools">
       <button class="btn small ${pb ? "secondary" : ""}" id="w-pb">${pb ? "Rebuild plan" : "Build response plan"}</button>
       ${n.trace_case_id ? `<a class="btn small secondary" href="#/case/${esc(n.trace_case_id)}">Open deep trace</a>` : `<button class="btn small secondary" id="w-trace-open">Deep trace + AI engine check</button>`}
-      <details class="facts"><summary class="small">Verified brand facts for drafts</summary>
+      <details class="facts"><summary class="small">Verified brand facts and audience size</summary>
         <textarea id="w-pos" rows="3" maxlength="2000" placeholder="e.g. No recall has been issued. Lead is sealed under a steel cap and never touches the drink.">${esc(w.input.position)}</textarea>
+        <label class="small" for="w-aud2" style="margin-top:8px">Brand audience (followers on main channel)</label>
+        <input id="w-aud2" type="number" min="0" step="1000" value="${w.input.brand_audience || ""}" placeholder="unknown">
         <div class="row-end"><button class="btn small secondary" id="w-pos-save">Save facts and rebuild plan</button></div></details>
     </div>
     ${W.tracing ? `<form class="trace-form" id="w-trace">
@@ -1100,6 +1122,7 @@ function watchActionCard(a) {
     <div class="action-head"><span class="action-kind">${esc(WKIND[a.kind] || a.kind)}</span><span class="action-title">${esc(a.title)}</span><span class="chip ${esc(a.status)}">${esc(a.status)}</span></div>
     <div class="action-body">
       <div class="owner-row">${a.owner ? `<span><b>Owner</b> ${esc(a.owner)}</span>` : ""}${a.timing ? `<span><b>When</b> ${esc(a.timing)}</span>` : ""}${a.channel ? `<span><b>Where</b> ${esc(a.channel)}</span>` : ""}${a.target_url ? `<span><b>Target</b> <a href="${safeHref(a.target_url)}" target="_blank" rel="noopener noreferrer">${esc(host(a.target_url))}</a></span>` : ""}</div>
+      ${a.raci && a.raci.A ? `<div class="raci"><span><b>R</b> ${esc(a.raci.R)}</span><span><b>A</b> ${esc(a.raci.A)}</span>${a.raci.C.length ? `<span><b>C</b> ${esc(a.raci.C.join(", "))}</span>` : ""}${a.raci.I.length ? `<span><b>I</b> ${esc(a.raci.I.join(", "))}</span>` : ""}</div>` : ""}
       ${a.why ? `<div class="why">${esc(a.why)}</div>` : ""}
       ${a.draft || a.final_text ? `<textarea data-aid="${esc(a.id)}" ${locked ? "readonly" : ""}>${esc(a.status === "approved" ? a.final_text : a.draft)}</textarea>` : ""}
       ${a.flags.length ? `<ul class="flags">${a.flags.map((f) => `<li>${esc(f)}</li>`).join("")}</ul>` : ""}
@@ -1126,7 +1149,7 @@ function wireDetail(n) {
   });
   document.getElementById("w-pos-save")?.addEventListener("click", async (e) => {
     e.target.disabled = true; e.target.textContent = "Saving...";
-    await api(`/api/watch/${w.id}/position`, { method: "POST", body: JSON.stringify({ position: document.getElementById("w-pos").value }) });
+    await api(`/api/watch/${w.id}/position`, { method: "POST", body: JSON.stringify({ position: document.getElementById("w-pos").value, brand_audience: Number(document.getElementById("w-aud2").value) || 0 }) });
     e.target.textContent = "Drafting plan...";
     await api(`/api/watch/${w.id}/narratives/${n.id}/playbook`, { method: "POST" });
     await loadWatch(w.id); drawDetail(true);
@@ -1173,3 +1196,59 @@ function notifyAlert(a) {
 
 // Start the router last so every module-level constant above is initialized.
 route();
+
+
+// ---------- judgment layer (veracity, amplification, channel order) ----------
+function judgmentBlocks(pb) {
+  const v = VERACITY[pb.veracity] || VERACITY.unclear;
+  const a = pb.amplification || {};
+  const src = pb.original_source || {};
+  const ver = `<div class="judge">
+    <div class="judge-head"><h3>How true is it?</h3><span class="chip ver-${esc(pb.veracity || "unclear")}">${esc(v[0])}</span><span class="small muted">${esc(v[1])}</span></div>
+    ${pb.true_part ? `<div class="small"><b>True part:</b> ${esc(pb.true_part)}</div>` : ""}
+    ${pb.missing_context ? `<div class="small"><b>Missing context:</b> ${esc(pb.missing_context)}</div>` : ""}
+    ${pb.veracity === "misframed" || pb.veracity === "true_unflattering" ? `<div class="small rule">Answer by agreeing with the true part and adding context. Never deny it.</div>` : ""}
+    ${pb.veracity_basis ? `<div class="small muted">Basis: ${esc(pb.veracity_basis)}</div>` : ""}
+  </div>`;
+  const sc = pb.scct || {};
+  const scctHtml = sc.strategy ? `<div class="judge">
+    <div class="judge-head"><h3>Crisis response strategy</h3><span class="chip scct-${esc(sc.strategy)}">${esc(sc.strategy_name)}</span>
+      <span class="small muted">SCCT cluster: ${esc(sc.cluster)}</span></div>
+    <div class="small">${esc(sc.how)}${sc.bolster ? " Add bolstering: remind people of relevant goodwill, briefly." : ""}</div>
+    <div class="small muted">${esc(sc.cluster_why)} ${esc(sc.note)}</div>
+  </div>` : "";
+  const sh = (pb.stakeholders || []).filter((r) => r.quadrant !== "Monitor");
+  const shHtml = sh.length ? `<div class="judge"><div class="judge-head"><h3>Who to brief first</h3><span class="small muted">Mendelow power/interest grid</span></div>
+    <table class="sh"><tbody>${sh.map((r) => `<tr><td><b>${esc(r.stakeholder)}</b></td><td><span class="chip q-${r.rank}">${esc(r.quadrant)}</span></td><td class="small">${esc(r.action)}</td></tr>`).join("")}</tbody></table></div>` : "";
+  if (!a.verdict) return ver + scctHtml + shHtml;
+  const amp = `<div class="judge amp-${esc(a.verdict)}">
+    <div class="judge-head"><h3>Would replying amplify it?</h3><span class="chip amp-chip-${esc(a.verdict)}">${esc(AMP[a.verdict] || a.verdict)}</span></div>
+    <div class="small">${esc(a.why)}</div>
+    <div class="reach-row">
+      <div><div class="v">${Number(a.rumor_reach || 0).toLocaleString()}</div><div class="k">rumor reach (engagements found)</div></div>
+      <div><div class="v">${a.brand_audience ? Number(a.brand_audience).toLocaleString() : "unknown"}</div><div class="k">brand audience</div></div>
+      <div><div class="v">${a.exposure_avoided ? "up to " + Number(a.exposure_avoided).toLocaleString() : "–"}</div><div class="k">extra exposure avoided by not replying</div></div>
+    </div>
+    ${(a.triggers || []).length ? `<div class="small"><b>Respond publicly only if:</b><ul class="trig">${a.triggers.map((t) => `<li>${esc(t)}</li>`).join("")}</ul></div>` : ""}
+    <div class="small muted">${esc(a.reach_note || "")}</div>
+    ${src.url ? `<div class="small" style="margin-top:6px"><b>Original source to ask for a correction:</b> <a href="${safeHref(src.url)}" target="_blank" rel="noopener noreferrer">${esc(src.author || host(src.url))}</a> <span class="muted">· ${esc(src.why || "")}</span></div>` : ""}
+  </div>`;
+  return ver + scctHtml + amp + shHtml;
+}
+
+function groupByTier(acts) {
+  let html = "", last = -1;
+  for (const a of acts) {
+    const t = TIER[a.kind] ?? 3;
+    if (t !== last) { html += `<div class="tier-label">${esc(TIER_LABEL[t])}</div>`; last = t; }
+    html += watchActionCard(a);
+  }
+  return html;
+}
+
+function quietStats(w) {
+  const pbs = (w.narratives || []).map((n) => n.playbook).filter(Boolean);
+  const quiet = pbs.filter((p) => p.amplification?.verdict === "stay_quiet");
+  const avoided = quiet.reduce((s, p) => s + (p.amplification.exposure_avoided || 0), 0);
+  return { plans: pbs.length, quiet: quiet.length, avoided };
+}
