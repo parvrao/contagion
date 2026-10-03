@@ -38,6 +38,12 @@ class RedditSource(Source):
     name = "reddit"
     platform = "Reddit"
 
+    def enabled(self) -> tuple[bool, str]:
+        # Reddit blocks unauthenticated requests from cloud servers (403); the open-web sweep still finds threads.
+        if os.environ.get("REDDIT_CLIENT_ID") and os.environ.get("REDDIT_CLIENT_SECRET"):
+            return True, ""
+        return False, "needs REDDIT_CLIENT_ID / REDDIT_CLIENT_SECRET (Reddit blocks anonymous server requests)"
+
     async def search(self, plan: SearchPlan) -> list[Item]:
         token = await _oauth_token()
         base = "https://oauth.reddit.com/search" if token else "https://www.reddit.com/search.json"

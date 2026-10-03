@@ -18,7 +18,8 @@ class HackerNewsSource(Source):
             numeric.append(f"created_at_i<{plan.until_ts()}")
 
         items: dict[str, Item] = {}
-        for q in plan.queries[:3]:
+        # Algolia has no OR syntax; boolean threat queries return noise, so only plain phrases go to HN.
+        for q in [x for x in plan.queries if "(" not in x][:2]:
             params = {"query": q, "tags": "(story,comment)", "hitsPerPage": min(plan.limit, 50)}
             if numeric:
                 params["numericFilters"] = ",".join(numeric)

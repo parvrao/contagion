@@ -823,7 +823,7 @@ function drawWatch(selChanged) {
   }
   document.getElementById("w-banner").innerHTML = w.replay
     ? `<div class="banner">Recorded watch: a saved snapshot, no live polling. Start a new watch for live data.</div>`
-    : `<div class="banner subtle">Public, indexed sources only. Not affiliated with ${esc(w.input.brand)}. Alerts go to your team; drafts are never posted or sent without a person's approval.</div>`;
+    : `<div class="banner subtle">Public sources only · not affiliated with ${esc(w.input.brand)} · nothing is posted or sent without your approval</div>`;
   drawWatchStatus();
   drawWatchKpis();
   drawBoard();
@@ -843,7 +843,7 @@ function drawWatchStatus() {
   const next = w.next_poll_at ? Math.max(0, Math.round((new Date(w.next_poll_at) - Date.now()) / 1000)) : null;
   const stage = w.stage === "waiting" && next !== null ? `next poll in ${next}s` : (STAGE_LABEL[w.stage] || w.stage) + "...";
   document.getElementById("w-meta").textContent = `WATCH · started ${day(w.created_at)} · cycle ${w.cycles}${live ? " · " + stage : ""}`;
-  document.getElementById("w-sub").innerHTML = `News, Hacker News and Bluesky every ${w.poll_seconds}s · YouTube and open-web sweep (TikTok, X, Reddit, forums via search) about every 15 min · triage: <b>${esc(w.triage_mode || "pending")}</b>${w.triage_mode === "keyword fallback" ? ' <span class="chip pending">add a Claude or Gemini key for full triage</span>' : ""}<br>AI answer check (Profound): <b>${esc(w.ai_status || "pending")}</b> · team alerts: <b>${esc((w.channels || []).join(", ") || "in-app only (set SLACK_WEBHOOK_URL)")}</b>`;
+  document.getElementById("w-sub").innerHTML = `Listening across news, forums, video and the open web · checks every ${w.poll_seconds}s${(w.channels || []).length ? ` · alerts to ${esc(w.channels.join(", "))}` : ""}`;
   const ctr = document.getElementById("w-controls");
   const sig = `${w.status}|${w.replay}|${typeof Notification !== "undefined" ? Notification.permission : "na"}|${w.actions.filter((a) => a.status === "approved").length}`;
   if (ctr.dataset.sig === sig) return;
@@ -878,7 +878,7 @@ function drawWatchStatus() {
 
 function drawWatchKpis() {
   const w = W.data;
-  const rel = w.mentions.filter((m) => m.relevant);
+  const rel = w.mentions.filter((m) => m.relevant && m.triaged);
   const dayAgo = Date.now() - 86400000;
   const m24 = rel.filter((m) => new Date(m.published_at || m.found_at).getTime() >= dayAgo);
   const neg = m24.length ? Math.round((m24.filter((m) => m.sentiment === "negative" || m.sentiment === "mixed").length / m24.length) * 100) : 0;
@@ -924,9 +924,9 @@ function drawBoard() {
   document.getElementById("w-narr-note").textContent = w.narratives.length ? `${threats.length} threats · ${low.length} low-risk` : "";
   const board = document.getElementById("w-board");
   if (!w.narratives.length) {
-    const errs = Object.entries(w.sources_status || {}).filter(([, v]) => !v.startsWith("ok"));
+    const errs = w.stage === "waiting" ? Object.entries(w.sources_status || {}).filter(([, v]) => v.startsWith("error")) : [];
     board.innerHTML = `<div class="empty card">${w.cycles && w.stage === "waiting" ? "No mentions found yet." : "First sweep running: pulling the last 7 days of public mentions, then reading every one..."}
-      ${errs.length ? `<ul class="flags" style="margin-top:8px">${errs.map(([k, v]) => `<li>${esc(k)}: ${esc(v)}</li>`).join("")}</ul>` : ""}</div>`;
+      ${errs.length ? `<div class="small muted" style="margin-top:6px">Some sources didn't respond; details under Sources and log.</div>` : ""}</div>`;
     return;
   }
   board.innerHTML = `<div class="board">${threats.map(narrCard).join("") || `<div class="empty card">No threat narratives right now. Low-risk chatter is below.</div>`}</div>
@@ -959,11 +959,12 @@ function streamRow(m, fresh) {
 
 function drawStream() {
   const w = W.data;
-  const plats = [...new Set(w.mentions.filter((m) => m.relevant).map((m) => m.platform))].sort();
+  const plats = [...new Set(w.mentions.filter((m) => m.relevant && m.triaged).map((m) => m.platform))].sort();
   const opts = [["all", "All"], ["threats", "Threats"], ["negative", "Negative"], ["narrative", "This narrative"], ...plats.map((p) => [`p:${p}`, p])];
   document.getElementById("w-filters").innerHTML = opts.map(([k, l]) => `<button type="button" data-f="${esc(k)}" aria-pressed="${W.filter === k}">${esc(l)}</button>`).join("");
   document.querySelectorAll("#w-filters [data-f]").forEach((b) => b.addEventListener("click", () => { W.filter = b.dataset.f; drawStream(); }));
-  let rows = w.mentions.filter((m) => m.relevant);
+  // Show what has been read and kept; unread items appear once triage confirms they are about the brand.
+  let rows = w.mentions.filter((m) => m.relevant && m.triaged);
   if (W.filter === "threats") rows = rows.filter((m) => m.severity >= 2);
   else if (W.filter === "negative") rows = rows.filter((m) => m.sentiment === "negative" || m.sentiment === "mixed");
   else if (W.filter === "narrative") rows = rows.filter((m) => m.narrative_id === W.sel);
@@ -972,7 +973,7 @@ function drawStream() {
   document.getElementById("w-stream-count").textContent = `${rows.length} shown`;
   document.getElementById("w-stream").innerHTML = rows.length
     ? rows.slice(0, 150).map((m) => streamRow(m, !W.firstLoad && !W.seen.has(m.id))).join("")
-    : `<div class="empty">${w.cycles ? "Nothing matches this filter." : "Listening..."}</div>`;
+    : `<div class="empty">${w.mentions.some((m) => !m.triaged) ? `Reading ${w.mentions.filter((m) => !m.triaged).length} new mentions...` : w.cycles ? "Nothing matches this filter." : "Listening..."}</div>`;
 }
 
 function drawDetail(force) {
@@ -1011,7 +1012,7 @@ function drawDetail(force) {
         ${pb.watch_for.length ? `<div><h3>Change the plan if</h3><ul>${pb.watch_for.map((x) => `<li>${esc(x)}</li>`).join("")}</ul></div>` : ""}
       </div>
       <div class="panel-head"><h3>Recommended actions · ${acts.filter((a) => a.status === "pending").length} awaiting approval</h3>
-        <span class="small muted">${pb.by === "template" ? "template plan (add a Claude or Gemini key for a tailored one)" : `drafted by ${esc(pb.by)}`} · ${esc(ago(pb.generated_at))}</span></div>
+        <span class="small muted">${pb.by === "template" ? "standard plan" : `drafted by ${esc(pb.by)}`} · ${esc(ago(pb.generated_at))}</span></div>
       <div>${acts.map(watchActionCard).join("")}</div>`
     : `<div class="empty">No response plan yet. Plans are drafted automatically once a narrative's threat score reaches 45, or build one now.</div>`}
     <div class="detail-tools">
@@ -1034,7 +1035,7 @@ function drawDetail(force) {
 
 function aiBlock(n) {
   const ex = n.ai_exposure || {};
-  if (!ex.checked) return W.data.ai_status && !W.data.ai_status.startsWith("ok") ? `<div class="ai-box muted small">AI answer check (Profound): ${esc(W.data.ai_status)}</div>` : "";
+  if (!ex.checked) return "";
   const counts = (ex.citation_counts || []).filter((r) => r.count);
   return `<div class="ai-box ${ex.answers ? "hit" : ""}">
     <div class="ai-head"><b>${ex.answers ? `In AI answers: ${ex.answers} of ${ex.checked}` : `Not in AI answers yet (0 of ${ex.checked})`}</b>
@@ -1099,7 +1100,10 @@ function wireDetail(n) {
 function drawWatchLog() {
   const w = W.data;
   const src = Object.entries(w.sources_status).map(([k, v]) => `<tr><td>${esc(k)}</td><td class="${v.startsWith("ok") ? "status-ok" : "status-bad"}">${esc(v)}</td><td class="mono small muted">${esc(ago(w.source_last_run[k]))}</td></tr>`).join("");
-  document.getElementById("w-log").innerHTML = `<table class="sources-table"><tbody>${src}</tbody></table>
+  const meta = [["Reading with", w.triage_mode || "pending"], ["AI answer check (Profound)", w.ai_status || "pending"],
+    ["Team alerts", (w.channels || []).join(", ") || "in-app only (set SLACK_WEBHOOK_URL or ALERT_WEBHOOK_URL)"]]
+    .map(([k, v]) => `<tr><td>${esc(k)}</td><td>${esc(v)}</td><td></td></tr>`).join("");
+  document.getElementById("w-log").innerHTML = `<table class="sources-table"><tbody>${meta}${src}</tbody></table>
     <div class="log" style="margin-top:12px">${[...w.log].reverse().slice(0, 80).map((l) => `<div class="${esc(l.level)}"><span class="t">${esc((l.at || "").slice(11, 19))}</span><span class="s">${esc(l.stage)}</span>${esc(l.message)}</div>`).join("")}</div>`;
 }
 
