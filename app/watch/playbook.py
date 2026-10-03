@@ -6,7 +6,7 @@ from __future__ import annotations
 import re
 
 from .. import llm, store
-from . import judgment
+from . import judgment, recalls
 from .models import Mention, Narrative, Playbook, Watch, WatchAction
 from .score import level_for
 
@@ -23,7 +23,7 @@ Step 1, before planning anything: decide how true the claim is.
 - true_unflattering: accurate, just bad for the brand.
 - opinion: a take, not a factual claim.
 - unclear: you can't tell from the verified facts and evidence (then drafts use [CONFIRM] placeholders).
-Record the true part and the missing context. A misframed or true claim is NEVER answered with a denial: agree with the true part and add the context ("Yes, X happened. Here's what it does and doesn't mean."). Opinions are not "corrected"; at most, listen and fix the underlying experience.
+If FDA recall records are given, cite them in veracity_basis (date, product, class). A matching recall supports the claim; NO record means unconfirmed, never proof the claim is false. Record the true part and the missing context. A misframed or true claim is NEVER answered with a denial: agree with the true part and add the context ("Yes, X happened. Here's what it does and doesn't mean."). Opinions are not "corrected"; at most, listen and fix the underlying experience.
 
 Then pick the SCCT (Coombs) response strategy that fits: deny ONLY a false rumor; diminish a misframed claim (agree with the true part, add context); rebuild for a true failure (acknowledge, apologize where warranted, remedy); for opinion, listen and bolster, don't correct; if unclear, confirm facts first. Write every draft in that strategy.
 
@@ -87,7 +87,7 @@ def _evidence(w: Watch, n: Narrative, k: int = 15) -> list[Mention]:
     return ms[:k]
 
 
-def _prompt(w: Watch, n: Narrative, ev: list[Mention], amp: dict, src: dict) -> str:
+def _prompt(w: Watch, n: Narrative, ev: list[Mention], amp: dict, src: dict, rc: dict | None = None) -> str:
     facts = w.input.position.strip() or "(none provided: use placeholders for any brand fact)"
     rows = "\n".join(
         f"- [{m.platform}] {m.author or m.domain} {m.published_at[:10]} stance={m.stance} sev={m.severity} eng={m.engagement} {m.url}\n  {m.summary or (m.title + ' ' + m.text)[:300]}"
@@ -100,6 +100,7 @@ def _prompt(w: Watch, n: Narrative, ev: list[Mention], amp: dict, src: dict) -> 
             f"Platforms: {', '.join(n.platforms)}; news outlets: {', '.join(n.news_outlets) or 'none'}\n"
             f"Spreading {n.spreading} / correcting {n.correcting}; negative share {int(n.negative_share * 100)}%\n"
             f"AI answer engines (Profound): {_ai_line(n)}\n"
+            f"FDA recall records (openFDA, CPG only): {recalls.prompt_line(rc or {})}\n"
             f"Amplification check (computed, follow it): verdict={amp['verdict']}; {amp['why']} Rumor reach {amp['rumor_reach']:,} engagements; brand audience {amp['brand_audience'] or 'unknown'}.\n"
             f"Original high-reach source: {src.get('url') or 'none found'} ({src.get('author', '')}, {src.get('why', '')})\n\n"
             f"Evidence:\n{rows}")
@@ -119,11 +120,12 @@ async def build(w: Watch, n: Narrative) -> tuple[Playbook, list[WatchAction]]:
     src = original_source(w, n, ev)
     allowed_urls = {m.url for m in ev} | ({f"https://{w.input.domain}"} if w.input.domain else set()) | ({src["url"]} if src.get("url") else set())
     ai_answers = (n.ai_exposure or {}).get("answers", 0)
+    rc = await recalls.check(w.input.brand, w.input.product) if recalls.applies(w.input.industry, n.threat_type, n.claim) else {}
     pb, acts = None, []
     if llm.available():
         try:
             amp0 = judgment.amplification(n, w.input.brand_audience, ai_answers)
-            data = await llm.complete_json(SYSTEM, _prompt(w, n, ev, amp0, src), max_tokens=4000)
+            data = await llm.complete_json(SYSTEM, _prompt(w, n, ev, amp0, src, rc), max_tokens=4000)
             pb = Playbook(
                 by=llm.label(), what=str(data.get("what", "")), who=str(data.get("who", "")),
                 how_fast=str(data.get("how_fast", "")), why_it_matters=str(data.get("why_it_matters", "")),
@@ -156,6 +158,7 @@ async def build(w: Watch, n: Narrative) -> tuple[Playbook, list[WatchAction]]:
             pb = None
     if pb is None:
         pb, acts = template(w, n, ev, src)
+    pb.recall_check = rc
     return finalize(w, n, pb, acts, src, ai_answers)
 
 

@@ -39,7 +39,7 @@ TIER = {
 }
 TIER_LABEL = {0: "Prep", 1: "1. AI answers and search", 2: "2. The original source", 3: "3. Platform tools", 4: "4. Public reply"}
 PUBLIC_KINDS = {"holding_statement", "social_reply"}
-URGENT_TYPES = {"safety", "legal", "service_outage"}
+URGENT_TYPES = {"safety", "legal", "service_outage", "ingredient"}   # health claims are never silenced
 
 DENIAL = re.compile(r"\b(false|untrue|not true|fake news|baseless|never happened|categorically|we deny|denies|deny|no truth|hoax|fabricat\w*)\b", re.I)
 
@@ -157,7 +157,7 @@ def scct(threat_type: str, veracity: str, severity: int) -> dict:
         cluster, why = "accidental", "A real fact with the wrong conclusion attached: low attributed responsibility, a challenge to explain."
         strat = "diminish"
     elif veracity == "true_unflattering":
-        if threat_type in ("legal", "pr_crisis", "boycott"):
+        if threat_type in ("legal", "pr_crisis", "boycott", "sourcing"):
             cluster, why = "preventable", "True and about the brand's own conduct: stakeholders attribute strong responsibility."
             strat = "rebuild"
         else:
@@ -180,10 +180,10 @@ _STAKEHOLDERS = [
     # name, power, base interest, threat types that raise interest to high
     ("Customers", "low", "high", set()),
     ("Frontline staff and support", "low", "high", set()),
-    ("Retail and distribution partners", "high", "low", {"product_issue", "safety", "pricing", "boycott", "service_outage"}),
-    ("Press and journalists", "high", "low", {"safety", "legal", "pr_crisis", "boycott"}),
+    ("Retail and distribution partners", "high", "low", {"product_issue", "safety", "pricing", "boycott", "service_outage", "ingredient", "formula_change", "availability"}),
+    ("Press and journalists", "high", "low", {"safety", "legal", "pr_crisis", "boycott", "ingredient", "sourcing"}),
     ("Investors and board", "high", "low", {"legal", "pr_crisis", "safety"}),
-    ("Regulators", "high", "low", {"safety", "legal"}),
+    ("Regulators", "high", "low", {"safety", "legal", "ingredient"}),
 ]
 _QUADRANT = {
     ("high", "high"): ("Manage closely", 0, "Brief directly before anything public; give them the facts and the plan."),
@@ -222,7 +222,7 @@ def raci(kind: str, owner: str, level: str, threat_type: str) -> dict:
     consulted = []
     if external:
         consulted.append("Legal")
-    if threat_type in ("product_issue", "safety", "service_outage"):
+    if threat_type in ("product_issue", "safety", "service_outage", "ingredient", "formula_change", "availability"):
         consulted.append("Product / Ops")
     informed = ["Customer Support"] if kind != "support_macro" else ["Social team"]
     if level in ("respond", "escalate"):

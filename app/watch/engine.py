@@ -63,6 +63,8 @@ def norm(url: str) -> str:
 
 
 THREAT_TERMS = "recall OR lawsuit OR boycott OR backlash OR controversy OR banned OR scandal OR investigation OR complaints OR outrage"
+# Consumer packaged goods: ingredient scares, recalls, recipe changes, shrinkflation, shortages.
+CPG_TERMS = "recall OR recalled OR contaminated OR ingredients OR dye OR allergen OR recipe OR reformulated OR shrinkflation OR discontinued"
 
 
 def queries(w: Watch) -> list[str]:
@@ -70,10 +72,12 @@ def queries(w: Watch) -> list[str]:
     b = w.input.brand.strip()
     qb = f'"{b}"' if " " in b else b
     qs = [qb, f"{qb} ({THREAT_TERMS})"]
+    if (w.input.industry or "").lower() == "cpg":
+        qs.append(f"{qb} ({CPG_TERMS})")
     if w.input.product:
         qs.append(f"{b} {w.input.product}".strip())
     qs += [k.strip() for k in w.input.keywords if k.strip()]
-    return qs[:5]
+    return qs[:6 if (w.input.industry or '').lower() == 'cpg' else 5]
 
 
 def start(w: Watch) -> None:

@@ -15,14 +15,18 @@ from .models import Mention, Narrative, Watch
 BATCH = 20
 GEMINI_BATCH = 40   # free tier allows few requests per minute, so send fewer, larger batches
 THREAT_TYPES = ["rumor", "safety", "product_issue", "pricing", "boycott", "legal", "pr_crisis",
-                "service_outage", "competitor", "praise", "general"]
+                "service_outage", "competitor", "praise", "general",
+                "ingredient", "formula_change", "sourcing", "availability"]
 
 SYSTEM = """You are a brand-risk analyst on a social listening desk. You read public posts about a brand and triage them.
 For each numbered mention decide:
 - relevant: is it actually about this brand (not a namesake, not spam)?
 - sentiment: negative | neutral | positive | mixed
-- threat_type: one of rumor, safety, product_issue, pricing, boycott, legal, pr_crisis, service_outage, competitor, praise, general
-  (rumor = an unverified or false factual claim about the brand spreading; safety = health/injury/contamination; pr_crisis = executive/ad/statement backlash)
+- threat_type: one of rumor, safety, product_issue, pricing, boycott, legal, pr_crisis, service_outage, competitor, praise, general, ingredient, formula_change, sourcing, availability
+  (rumor = an unverified or false factual claim about the brand spreading; safety = health/injury/contamination/foreign object/recall; pr_crisis = executive/ad/statement backlash;
+   consumer packaged goods: ingredient = a claim about what is in the product or its health effect (dyes, additives, allergens, "banned in Europe");
+   formula_change = "they changed the recipe/formula", tastes different; sourcing = labor, animal welfare, environmental or origin claims;
+   availability = discontinued, shortages, out of stock; pricing also covers shrinkflation)
 - severity: 0 none, 1 low (isolated complaint), 2 elevated (claim others could repeat, or many people affected), 3 high (safety, legal, viral accusation, mainstream outlet carrying a damaging claim)
 - is_claim: does it assert something factual about the brand that could be true or false?
 - stance toward the narrative it belongs to: spreading (repeats/amplifies it), correcting (debunks/clarifies), neutral (reports)
@@ -156,9 +160,13 @@ def _attach(n: Narrative, m: Mention) -> None:
 
 KEYWORDS = [
     ("safety", 3, "Safety and health claims", r"\b(toxic|poison(ed|ing)?|contaminat\w*|recall(ed|s)?|carcinogen\w*|hospitali[sz]ed|food poisoning|health risk)\b"),
+    ("ingredient", 2, "Ingredient and health claims", r"\b(ingredients?|red (no\.? )?40|red dye|titanium dioxide|seed oils?|aspartame|artificial (dye|sweetener)s?|allergen\w*|banned in (europe|the eu)|microplastics?)\b"),
     ("legal", 2, "Lawsuits and legal action", r"\b(lawsuit|class action|sued|sues|suing|settlement over|ftc|attorney general)\b"),
     ("boycott", 2, "Boycott calls", r"\b(boycott\w*|never buying|stop buying)\b"),
+    ("sourcing", 2, "Sourcing and ethics claims", r"\b(child labou?r|forced labou?r|sweatshop|animal testing|deforestation|palm oil)\b"),
     ("pricing", 1, "Pricing backlash", r"\b(price hike|surge pricing|dynamic pricing|overpriced|shrinkflation)\b"),
+    ("formula_change", 1, "Formula change talk", r"\b(new (formula|recipe)|changed the (recipe|formula)|reformulat\w*|tastes different)\b"),
+    ("availability", 1, "Availability and discontinuation", r"\b(discontinued|out of stock|can'?t find (it|them)|shortage)\b"),
     ("service_outage", 1, "Outage and service complaints", r"\b(outage|down again|not working)\b"),
     ("pr_crisis", 2, "Backlash and controversy", r"\b(backlash|outrage|scandal|tone[- ]deaf|apologi[sz]es? for)\b"),
     ("product_issue", 1, "Product quality complaints", r"\b(defective|faulty|refund|worst purchase)\b"),
@@ -188,7 +196,7 @@ def _heuristic(w: Watch, m: Mention) -> list[Narrative]:
     if m.sentiment == "negative" and m.severity == 0:
         m.severity = 1
     m.stance = "correcting" if CORRECT.search(text) else ("spreading" if m.severity >= 2 else "neutral")
-    m.is_claim = m.threat_type in ("rumor", "safety", "legal", "pricing")
+    m.is_claim = m.threat_type in ("rumor", "safety", "legal", "pricing", "ingredient", "sourcing", "availability", "formula_change")
     m.summary = (m.title or m.text)[:160]
     created = []
     n = next((x for x in w.narratives if x.title == title), None)

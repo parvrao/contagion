@@ -781,6 +781,8 @@ function watchForm() {
           <div class="field"><label for="w-product">Product or campaign</label><input id="w-product" name="product" maxlength="120" placeholder="e.g. Quencher tumbler"></div>
           <div class="field"><label for="w-domain">Official site</label><input id="w-domain" name="domain" maxlength="200" placeholder="stanley1913.com"></div>
         </div>
+        <div class="field"><label for="w-ind">Industry <span class="hint">CPG adds ingredient, recall and recipe searches, plus FDA recall checks on safety claims</span></label>
+        <select id="w-ind" name="industry"><option value="">General</option><option value="cpg">Consumer packaged goods (CPG)</option></select></div>
         <div class="field"><label for="w-kw">Extra keywords <span class="hint">comma separated</span></label><input id="w-kw" name="keywords" placeholder="e.g. stanley cup lead, stanley recall"></div>
         <div class="field"><label for="w-pos">Verified brand facts <span class="hint">drafts may use these; anything else becomes a [CONFIRM] placeholder</span></label>
         <textarea id="w-pos" name="position" rows="3" maxlength="2000"></textarea></div>
@@ -1211,6 +1213,7 @@ function judgmentBlocks(pb) {
     ${pb.missing_context ? `<div class="small"><b>Missing context:</b> ${esc(pb.missing_context)}</div>` : ""}
     ${pb.veracity === "misframed" || pb.veracity === "true_unflattering" ? `<div class="small rule">Answer by agreeing with the true part and adding context. Never deny it.</div>` : ""}
     ${pb.veracity_basis ? `<div class="small muted">Basis: ${esc(pb.veracity_basis)}</div>` : ""}
+    ${recallBlock(pb.recall_check)}
   </div>`;
   const sc = pb.scct || {};
   const scctHtml = sc.strategy ? `<div class="judge">
@@ -1253,4 +1256,15 @@ function quietStats(w) {
   const quiet = pbs.filter((p) => p.amplification?.verdict === "stay_quiet");
   const avoided = quiet.reduce((s, p) => s + (p.amplification.exposure_avoided || 0), 0);
   return { plans: pbs.length, quiet: quiet.length, avoided };
+}
+
+
+function recallBlock(rc) {
+  if (!rc || !rc.checked) return "";
+  if (rc.error) return `<div class="small muted">FDA recall check: lookup failed, so recall status is unconfirmed.</div>`;
+  const rows = (rc.items || []).slice(0, 3).map((i) =>
+    `<li><b>${esc(i.date)}</b> ${esc(i.classification)} · ${esc(i.status)} · ${esc(i.product)}<br><span class="muted">${esc(i.reason)}</span></li>`).join("");
+  return `<div class="small"><b>FDA recall records:</b> ${esc(rc.note || "")}
+    ${rows ? `<ul class="small">${rows}</ul>` : ""}
+    <a href="${esc(rc.browse)}" target="_blank" rel="noopener">FDA recalls</a></div>`;
 }

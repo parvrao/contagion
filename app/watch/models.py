@@ -16,6 +16,8 @@ Sentiment = Literal["negative", "neutral", "positive", "mixed"]
 ThreatType = Literal[
     "rumor", "safety", "product_issue", "pricing", "boycott", "legal",
     "pr_crisis", "service_outage", "competitor", "praise", "general",
+    # CPG-specific
+    "ingredient", "formula_change", "sourcing", "availability",
 ]
 Stance = Literal["spreading", "correcting", "neutral"]
 NarrativeStatus = Literal["emerging", "escalating", "active", "fading"]
@@ -31,6 +33,7 @@ class WatchInput(BaseModel):
     keywords: list[str] = Field(default_factory=list)
     position: str = Field(default="", max_length=2000, description="Optional brand facts drafts may use")
     brand_audience: int = Field(default=0, ge=0, description="Followers/reach of the brand's main channel; 0 = unknown")
+    industry: str = Field(default="", max_length=20, description="'cpg' adds CPG search terms and FDA recall checks")
 
 
 class Mention(BaseModel):
@@ -98,6 +101,7 @@ class Playbook(BaseModel):
     original_source: dict = Field(default_factory=dict)   # {url, author, platform, why}
     scct: dict = Field(default_factory=dict)              # crisis cluster + response strategy (Coombs)
     stakeholders: list[dict] = Field(default_factory=list)  # Mendelow power/interest grid
+    recall_check: dict = Field(default_factory=dict)      # openFDA food enforcement lookup (CPG safety/ingredient claims)
 
 
 class Narrative(BaseModel):
