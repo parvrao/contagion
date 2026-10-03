@@ -146,6 +146,7 @@ class Watch(BaseModel):
     sources_status: dict = Field(default_factory=dict)
     source_last_run: dict = Field(default_factory=dict)
     triage_mode: str = ""        # "Claude", "Gemini" or "keyword fallback"
+    triage_errors: list[str] = Field(default_factory=list)
     ai_status: str = ""          # Profound status line
     ai_category_id: str = ""
     ai_category_name: str = ""

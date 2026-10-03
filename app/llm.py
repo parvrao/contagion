@@ -36,22 +36,52 @@ def available() -> bool:
 GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
 
 
+_gemini_ok: dict = {"model": ""}
+last_error: dict = {"msg": ""}
+
+
+def _gemini_models() -> list[str]:
+    seen, out = set(), []
+    for m in [_gemini_ok["model"], settings.gemini_model, "gemini-flash-latest", "gemini-flash-lite-latest", "gemini-2.5-flash-lite", "gemini-2.0-flash"]:
+        if m and m not in seen:
+            seen.add(m)
+            out.append(m)
+    return out
+
+
 async def _gemini(system: str, user: str, *, max_tokens: int, temperature: float, search: bool, json_mode: bool = False):
     body: dict = {
         "systemInstruction": {"parts": [{"text": system}]},
         "contents": [{"role": "user", "parts": [{"text": user}]}],
-        "generationConfig": {"temperature": temperature, "maxOutputTokens": max(max_tokens, 2048)},
+        "generationConfig": {"temperature": temperature, "maxOutputTokens": max(max_tokens, 8192)},
     }
     if search:
         body["tools"] = [{"google_search": {}}]
     elif json_mode:
         body["generationConfig"]["responseMimeType"] = "application/json"
-    data = await http.post_json(
-        GEMINI_URL.format(model=settings.gemini_model), body,
-        headers={"x-goog-api-key": settings.gemini_api_key, "content-type": "application/json"}, timeout=120.0,
-    )
+    data, err = None, None
+    for model in _gemini_models():
+        try:
+            data = await http.post_json(
+                GEMINI_URL.format(model=model), body,
+                headers={"x-goog-api-key": settings.gemini_api_key, "content-type": "application/json"},
+                timeout=120.0, attempts=6,
+            )
+            _gemini_ok["model"] = model
+            break
+        except http.UpstreamError as exc:
+            err = exc
+            # Model retired or not offered to this key: try the next one. Anything else (quota, auth) is final.
+            if exc.status in (400, 404) and ("model" in str(exc).lower() or exc.status == 404):
+                continue
+            break
+    if data is None:
+        last_error["msg"] = f"Gemini: {str(err)[:200]}"
+        raise err or RuntimeError("Gemini unavailable")
     cand = (data.get("candidates") or [{}])[0]
     text = "".join(p.get("text", "") for p in cand.get("content", {}).get("parts", []) if not p.get("thought"))
+    if not text and cand.get("finishReason"):
+        last_error["msg"] = f"Gemini returned no text (finishReason {cand.get('finishReason')})"
     results = []
     for chunk in (cand.get("groundingMetadata") or {}).get("groundingChunks", []):
         web = chunk.get("web") or {}

@@ -225,6 +225,9 @@ async def _poll_group(w: Watch, group, plan, first: bool, now) -> int:
     score.recompute(w)
     relevant = sum(m.relevant for m in new)
     _log(w, "triage", f"Triaged {len(new)} ({relevant} relevant) with {w.triage_mode}; {len(created)} new narratives.")
+    for e in w.triage_errors[-2:]:
+        _log(w, "triage", e, "warn")
+    w.triage_errors = []
 
     fresh = score.alerts_for(w, before, first)
     for a in fresh:

@@ -11,6 +11,7 @@ from .. import llm
 from .models import Mention, Narrative, Watch
 
 BATCH = 20
+GEMINI_BATCH = 40   # free tier allows few requests per minute, so send fewer, larger batches
 THREAT_TYPES = ["rumor", "safety", "product_issue", "pricing", "boycott", "legal", "pr_crisis",
                 "service_outage", "competitor", "praise", "general"]
 
@@ -52,13 +53,21 @@ async def triage(w: Watch, new: list[Mention], on_batch=None) -> list[Narrative]
             created += _heuristic(w, m)
         return created
     w.triage_mode = llm.label()
-    batches = [new[i:i + BATCH] for i in range(0, len(new), BATCH)]
+    size = GEMINI_BATCH if llm.provider() == "gemini" and int(__import__("os").environ.get("CONTAGION_GEMINI_CONCURRENCY", "2")) <= 2 else BATCH
+    batches = [new[i:i + size] for i in range(0, len(new), size)]
     if not batches:
         return created
     created += await _one_batch(w, batches[0])
     if on_batch:
         on_batch()
-    if len(batches) > 1:
+    import os
+    free_gemini = llm.provider() == "gemini" and int(os.environ.get("CONTAGION_GEMINI_CONCURRENCY", "2")) <= 2
+    if len(batches) > 1 and free_gemini:
+        for b in batches[1:]:          # sequential on the free tier
+            created += await _one_batch(w, b)
+            if on_batch:
+                on_batch()
+    elif len(batches) > 1:
         import asyncio
         for res in await asyncio.gather(*[_one_batch(w, b) for b in batches[1:]]):
             created += res
@@ -70,8 +79,10 @@ async def triage(w: Watch, new: list[Mention], on_batch=None) -> list[Narrative]
 async def _one_batch(w: Watch, batch: list[Mention]) -> list[Narrative]:
     created: list[Narrative] = []
     try:
-        data = await llm.complete_json(SYSTEM, _format(w, batch), max_tokens=4000)
-    except Exception:  # noqa: BLE001  (one bad batch must not stop the watch)
+        data = await llm.complete_json(SYSTEM, _format(w, batch), max_tokens=6000)
+    except Exception as exc:  # noqa: BLE001  (one bad batch must not stop the watch)
+        w.triage_errors = (w.triage_errors + [f"{llm.label()} triage failed, keyword fallback used: {str(exc)[:200]}"])[-5:]
+        w.triage_mode = f"keyword fallback ({llm.label()} unavailable)"
         for m in batch:
             created += _heuristic(w, m)
         return created
@@ -133,15 +144,14 @@ def _attach(n: Narrative, m: Mention) -> None:
 # ---------- keyword fallback ----------
 
 KEYWORDS = [
-    ("safety", 3, "Safety and health claims", r"\b(lead|toxic|poison\w*|contaminat\w*|sick|illness|hospital\w*|injur\w*|recall\w*|fda|carcinogen\w*|explod\w*|fire|burn\w*|death|died)\b"),
-    ("legal", 3, "Lawsuits and legal action", r"\b(lawsuit|sued|sues|class action|settlement|investigation|probe|ftc|sec|fine[ds]?|court)\b"),
-    ("boycott", 2, "Boycott calls", r"\b(boycott\w*|cancel\w*|never buying|stop buying|#?ban)\b"),
-    ("pricing", 2, "Pricing backlash", r"\b(price hike|surge pricing|dynamic pricing|overpriced|price increase|more expensive|shrinkflation|fees?)\b"),
-    ("service_outage", 2, "Outage and service complaints", r"\b(outage|down again|not working|broken|crash\w*|bug\w*|glitch\w*)\b"),
-    ("pr_crisis", 2, "Backlash and controversy", r"\b(backlash|controvers\w*|outrage|apolog\w*|scandal|offensive|tone[- ]deaf|layoffs?)\b"),
-    ("rumor", 2, "Unverified claims", r"\b(rumou?r\w*|allegedly|reportedly|claims?|hoax|fake|misinformation|is it true)\b"),
-    ("product_issue", 1, "Product quality complaints", r"\b(defect\w*|leak\w*|faulty|quality|disappoint\w*|refund|returned|worst)\b"),
-    ("praise", 0, "Positive customer talk", r"\b(love|best|amazing|great|obsessed|recommend|favorite)\b"),
+    ("safety", 3, "Safety and health claims", r"\b(toxic|poison(ed|ing)?|contaminat\w*|recall(ed|s)?|carcinogen\w*|hospitali[sz]ed|food poisoning|health risk)\b"),
+    ("legal", 2, "Lawsuits and legal action", r"\b(lawsuit|class action|sued|sues|suing|settlement over|ftc|attorney general)\b"),
+    ("boycott", 2, "Boycott calls", r"\b(boycott\w*|never buying|stop buying)\b"),
+    ("pricing", 1, "Pricing backlash", r"\b(price hike|surge pricing|dynamic pricing|overpriced|shrinkflation)\b"),
+    ("service_outage", 1, "Outage and service complaints", r"\b(outage|down again|not working)\b"),
+    ("pr_crisis", 2, "Backlash and controversy", r"\b(backlash|outrage|scandal|tone[- ]deaf|apologi[sz]es? for)\b"),
+    ("product_issue", 1, "Product quality complaints", r"\b(defective|faulty|refund|worst purchase)\b"),
+    ("praise", 0, "Positive customer talk", r"\b(love|obsessed|recommend|favorite)\b"),
 ]
 NEG = re.compile(r"\b(bad|worst|hate|awful|terrible|scam|fraud|angry|disgust\w*|never again|lawsuit|recall\w*|boycott\w*|toxic|lead)\b", re.I)
 POS = re.compile(r"\b(love|best|amazing|great|awesome|recommend|favorite|excellent)\b", re.I)
@@ -152,7 +162,8 @@ def _heuristic(w: Watch, m: Mention) -> list[Narrative]:
     text = f"{m.title} {m.text}".lower()
     brand = w.input.brand.lower().split()[0] if w.input.brand else ""
     m.triaged = True
-    m.relevant = not brand or brand in text or brand in m.url.lower()
+    full = w.input.brand.lower()
+    m.relevant = not brand or full in text or full.replace(" ", "") in text or full.replace(" ", "") in m.url.lower()
     if not m.relevant:
         return []
     m.threat_type, m.severity, title = "general", 0, "General brand chatter"
@@ -174,6 +185,7 @@ def _heuristic(w: Watch, m: Mention) -> list[Narrative]:
         w.narratives.append(n)
         created.append(n)
     _attach(n, m)
+    n.claim = ""   # keyword matches can't tell us the actual claim; don't put a headline in its place
     return created
 
 

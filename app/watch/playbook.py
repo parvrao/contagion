@@ -122,7 +122,7 @@ def template(w: Watch, n: Narrative, ev: list[Mention]) -> tuple[Playbook, list[
     top = ev[0] if ev else None
     pb = Playbook(
         by="template",
-        what=f"{n.count} public mentions grouped as \"{n.title}\". {n.claim or n.summary}".strip(),
+        what=f"{n.count} public mentions match {n.title.lower()} keywords. Read the evidence to confirm what is being claimed.",
         who=f"Carried on {', '.join(n.platforms) or 'unknown platforms'}" + (f"; news outlets: {', '.join(n.news_outlets[:3])}." if n.news_outlets else "."),
         how_fast=f"{n.count_24h} mentions in the last 24 hours, {n.velocity}x the usual rate; status: {n.status}.",
         why_it_matters="Unanswered claims get repeated by search and AI answer engines long after the news cycle." if n.severity >= 2 else "Low risk today; worth tracking for a change in speed or reach.",
@@ -153,5 +153,6 @@ def template(w: Watch, n: Narrative, ev: list[Mention]) -> tuple[Playbook, list[
         acts.append(WatchAction(narrative_id=n.id, kind="task", title="Loop in Legal and the exec sponsor", owner="Exec sponsor", timing="within 2 hours",
                                 channel="Call", why="High-severity claims need a decision owner."))
     for a in acts:
-        a.flags = guardrail(a.draft, w, {m.url for m in ev})
+        # Internal briefs quote our own metrics, so only external drafts get the number check.
+        a.flags = guardrail(a.draft, w, {m.url for m in ev}) if a.kind != "internal_brief" else (["Has placeholders to fill before use"] if "[CONFIRM" in a.draft else [])
     return pb, acts

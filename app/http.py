@@ -61,7 +61,7 @@ def _retry_after(resp: httpx.Response) -> float | None:
     if not value:
         return None
     try:
-        return min(float(value), 30.0)
+        return min(float(value), 45.0)
     except ValueError:
         return None
 
