@@ -1026,7 +1026,13 @@ function streamRow(m, fresh) {
 function drawStream() {
   const w = W.data;
   const plats = [...new Set(w.mentions.filter((m) => m.relevant && m.triaged).map((m) => m.platform))].sort();
-  const opts = [["all", "All"], ["threats", "Threats"], ["negative", "Negative"], ["narrative", "This narrative"], ...plats.map((p) => [`p:${p}`, p])];
+  // Only offer a narrative filter when it narrows things down: the catch-all "general chatter"
+  // narrative holds almost everything, so filtering by it looked identical to a platform filter.
+  const seln = w.narratives.find((n) => n.id === W.sel);
+  const showNar = seln && seln.threat_type !== "general" && seln.count < w.mentions.filter((m) => m.relevant && m.triaged).length;
+  if (W.filter === "narrative" && !showNar) W.filter = "all";
+  const narLabel = seln ? (seln.title.length > 28 ? seln.title.slice(0, 27) + "…" : seln.title) : "";
+  const opts = [["all", "All"], ["threats", "Threats"], ["negative", "Negative"], ...(showNar ? [["narrative", narLabel]] : []), ...plats.map((p) => [`p:${p}`, p])];
   document.getElementById("w-filters").innerHTML = opts.map(([k, l]) => `<button type="button" data-f="${esc(k)}" aria-pressed="${W.filter === k}">${esc(l)}</button>`).join("");
   document.querySelectorAll("#w-filters [data-f]").forEach((b) => b.addEventListener("click", () => { W.filter = b.dataset.f; drawStream(); }));
   // Show what has been read and kept; unread items appear once triage confirms they are about the brand.

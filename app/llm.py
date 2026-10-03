@@ -65,7 +65,7 @@ async def _gemini(system: str, user: str, *, max_tokens: int, temperature: float
             data = await http.post_json(
                 GEMINI_URL.format(model=model), body,
                 headers={"x-goog-api-key": settings.gemini_api_key, "content-type": "application/json"},
-                timeout=120.0, attempts=6,
+                timeout=60.0, attempts=3,   # fail fast: a stuck call used to hold the watch for up to 12 min
             )
             _gemini_ok["model"] = model
             break

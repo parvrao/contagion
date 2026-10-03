@@ -5,6 +5,8 @@ keeps the dashboard useful (and says so on screen).
 """
 from __future__ import annotations
 
+import asyncio
+
 import re
 
 from .. import llm
@@ -79,7 +81,14 @@ async def triage(w: Watch, new: list[Mention], on_batch=None) -> list[Narrative]
 async def _one_batch(w: Watch, batch: list[Mention]) -> list[Narrative]:
     created: list[Narrative] = []
     try:
-        data = await llm.complete_json(SYSTEM, _format(w, batch), max_tokens=6000)
+        data = await asyncio.wait_for(llm.complete_json(SYSTEM, _format(w, batch), max_tokens=6000),
+                                      timeout=float(__import__("os").environ.get("CONTAGION_TRIAGE_TIMEOUT", "90")))
+    except asyncio.TimeoutError:
+        w.triage_errors = (w.triage_errors + [f"{llm.label()} took over 90 s on a batch; keyword fallback used for it"])[-5:]
+        w.triage_mode = f"keyword fallback ({llm.label()} too slow)"
+        for m in batch:
+            created += _heuristic(w, m)
+        return created
     except Exception as exc:  # noqa: BLE001  (one bad batch must not stop the watch)
         w.triage_errors = (w.triage_errors + [f"{llm.label()} triage failed, keyword fallback used: {str(exc)[:200]}"])[-5:]
         w.triage_mode = f"keyword fallback ({llm.label()} unavailable)"

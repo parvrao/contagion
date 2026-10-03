@@ -167,7 +167,9 @@ async def check_ai(w: Watch) -> None:
     store.publish(w.id, {"type": "update", "stage": "ai_check"})
     before = score.snapshot(w)
     try:
-        await ai.refresh(w)
+        await asyncio.wait_for(ai.refresh(w), timeout=180)
+    except asyncio.TimeoutError:
+        w.ai_status = "error: Profound didn't answer within 3 minutes; will retry on the next check"
     except Exception as exc:  # noqa: BLE001
         w.ai_status = f"error: {str(exc)[:160]}"
     w.ai_checked_at = now_iso()
