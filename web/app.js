@@ -880,26 +880,28 @@ function drawWatch(selChanged) {
         </div>
         <div class="w-controls" id="w-controls"></div>
       </div>
-      <div class="kpis" id="w-kpis"></div>
-      <div class="w-grid">
-        <section>
-          <div class="panel"><div class="panel-head"><h3>Narratives by threat</h3><span class="small muted" id="w-narr-note"></span></div><div id="w-board"></div></div>
-          <div class="panel" id="w-detail"></div>
-        </section>
-        <aside>
-          <div class="panel"><div class="panel-head"><h3>Alerts</h3><button class="linkish small" id="w-read">Mark all read</button></div><div id="w-alerts"></div></div>
-          <div class="panel"><div class="panel-head"><h3>Live evidence</h3><span class="small muted" id="w-stream-count"></span></div>
-            <div class="filters" id="w-filters"></div><div class="stream" id="w-stream"></div></div>
+      <section class="verdict" id="w-verdict" aria-live="polite"></section>
+      <div class="triage">
+        <aside class="queue" aria-label="Triage queue">
+          <div class="panel-head"><h3>Triage queue</h3><span class="small muted" id="w-narr-note"></span></div>
+          <div id="w-board"></div>
         </aside>
+        <section class="focus" id="w-detail" aria-label="Selected narrative"></section>
+      </div>
+      <div class="below">
+        <section class="panel"><div class="panel-head"><h3>Evidence</h3><span class="small muted" id="w-stream-count"></span></div>
+          <div class="filters" id="w-filters"></div><div class="stream" id="w-stream"></div></section>
+        <section class="panel"><div class="panel-head"><h3>Alert history</h3><button class="linkish small" id="w-read">Mark all read</button></div><div id="w-alerts"></div></section>
       </div>
       <div class="panel"><details><summary class="small">Sources and log</summary><div id="w-log"></div></details></div>
+      <p class="w-foot small muted" id="w-foot"></p>
       <div id="toasts" class="toasts" aria-live="assertive"></div>
     </div>`;
     document.getElementById("w-read").addEventListener("click", async () => { await api(`/api/watch/${w.id}/alerts/read`, { method: "POST" }); loadWatch(w.id); });
   }
   document.getElementById("w-banner").innerHTML = w.replay
-    ? `<div class="banner">Recorded watch: a saved snapshot, no live polling. Start a new watch for live data.</div>`
-    : `<div class="banner subtle">Public sources only · not affiliated with ${esc(w.input.brand)}, nothing is posted or sent without your approval</div>`;
+    ? `<div class="banner">Recorded watch: a saved snapshot, no live polling. Start a new watch for live data.</div>` : "";
+  document.getElementById("w-foot").textContent = w.replay ? "" : `Public sources only. Not affiliated with ${w.input.brand}. Nothing is posted or sent without a person's approval.`;
   drawWatchStatus();
   drawWatchKpis();
   drawBoard();
@@ -956,20 +958,37 @@ function drawWatchStatus() {
   });
 }
 
+function selectNarrative(id) {
+  W.sel = id; W.tracing = false;
+  drawBoard(); drawDetail(true); drawStream();
+  if (innerWidth < 960) document.getElementById("w-detail").scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+// One sentence answers "is anything on fire?"; the numbers that used to be five equal tiles sit under it.
 function drawWatchKpis() {
   const w = W.data;
   const rel = w.mentions.filter((m) => m.relevant && m.triaged);
   const dayAgo = Date.now() - 86400000;
   const m24 = rel.filter((m) => new Date(m.published_at || m.found_at).getTime() >= dayAgo);
   const neg = m24.length ? Math.round((m24.filter((m) => m.sentiment === "negative" || m.sentiment === "mixed").length / m24.length) * 100) : 0;
-  const threats = w.narratives.filter((n) => isThreat(n) && n.status !== "fading");
-  const top = w.narratives.reduce((a, n) => Math.max(a, n.score), 0);
   const unread = w.alerts.filter((a) => !a.read).length;
-  document.getElementById("w-kpis").innerHTML =
-    kpi(m24.length, `mentions in 24h (${rel.length} total)`) + kpi(`${neg}%`, "negative or mixed (24h)", neg >= 40) +
-    kpi(threats.length, "active threat narratives", threats.length > 0) +
-    `<div class="kpi"><div class="v score-${scoreClass(top)}">${top}<span class="of">/100</span></div><div class="k">top threat score</div></div>` +
-    kpi(unread, "unread alerts", unread > 0);
+  const live = w.narratives.filter(isThreat).sort((a, b) => b.score - a.score);
+  const lvl = (n) => n.playbook?.response_level || "";
+  const act = live.filter((n) => ["respond", "escalate"].includes(lvl(n)));
+  const prep = live.filter((n) => lvl(n) === "prepare");
+  const lead = act[0] || live[0];
+  let head, tone;
+  if (!w.narratives.length) { head = w.cycles ? "No mentions found yet." : "First sweep in progress."; tone = "idle"; }
+  else if (act.length) { head = act.length === 1 ? "One narrative needs a response." : `${act.length} narratives need a response.`; tone = "act"; }
+  else if (prep.length) { head = `Nothing needs a response yet. ${prep.length} to prepare for.`; tone = "prep"; }
+  else if (live.length) { head = "Nothing needs action. Keep watching."; tone = "calm"; }
+  else { head = "All quiet."; tone = "calm"; }
+  const el = document.getElementById("w-verdict");
+  el.dataset.tone = tone;
+  el.innerHTML = `<h2 class="verdict-head">${esc(head)}</h2>
+    <p class="verdict-sub">${lead ? `Highest score is <b>${esc(lead.title)}</b> at ${lead.score} of 100. ` : ""}${plural(m24.length, "mention")} in the last 24 hours, ${neg}% negative or mixed${unread ? `, ${plural(unread, "unread alert")}` : ""}.</p>
+    ${lead ? `<button type="button" class="verdict-cta" data-nid="${esc(lead.id)}">${act.length ? "Review it" : "Open the top narrative"}</button>` : ""}`;
+  el.querySelector("[data-nid]")?.addEventListener("click", (e) => selectNarrative(e.currentTarget.dataset.nid));
 }
 
 function spark(vals) {
@@ -978,41 +997,42 @@ function spark(vals) {
   return `<svg class="spark" viewBox="0 0 120 28" preserveAspectRatio="none" aria-hidden="true"><polyline points="0,28 ${pts} 120,28" class="area"/><polyline points="${pts}" class="line"/></svg>`;
 }
 
-function narrCard(n) {
-  return `<button class="narr ${n.id === W.sel ? "on" : ""}" data-nid="${esc(n.id)}" type="button">
-    <div class="narr-top">
-      <span class="chip type">${esc(n.threat_type.replace("_", " "))}</span>
-      <span class="chip st-${esc(n.status)}">${esc(n.status)}</span>
-      ${n.playbook ? `<span class="chip lvl-${esc(n.playbook.response_level)}">${esc(LEVEL_LABEL[n.playbook.response_level])}</span>` : ""}
-      ${n.ai_exposure && n.ai_exposure.answers ? `<span class="chip ai-hit" title="Profound: AI answers repeating or citing this">In AI answers</span>` : ""}
-      <span class="score-num score-${scoreClass(n.score)}">${n.score}</span>
-    </div>
-    <div class="narr-title">${esc(n.title)}</div>
-    <div class="narr-claim">${esc(n.claim || n.summary)}</div>
-    <div class="narr-foot">
-      <div class="narr-meta">${plural(n.count, "mention")} · ${n.count_24h} in 24h${n.velocity ? `, ${n.velocity}x rate` : ""}<br>${esc(n.platforms.join(", "))}, first ${esc(ago(n.first_seen))}</div>
-      ${spark(n.spark_days && n.spark_days.some(Boolean) && !n.spark.some(Boolean) ? n.spark_days : n.spark)}
-    </div>
-    <div class="scorebar"><span class="score-bg-${scoreClass(n.score)}" style="width:${n.score}%"></span></div>
+function narrRow(n, unreadSet) {
+  const note = n.status === "escalating" ? "escalating" : n.status === "fading" ? "fading" : "";
+  const inAI = n.ai_exposure && n.ai_exposure.answers;
+  return `<button class="nrow ${n.id === W.sel ? "on" : ""}" data-nid="${esc(n.id)}" type="button" aria-pressed="${n.id === W.sel}">
+    <span class="nrow-score">${n.score}</span>
+    <span class="nrow-main">
+      <span class="nrow-title">${esc(n.title)}</span>
+      <span class="nrow-meta">${esc(n.threat_type.replace("_", " "))} · ${esc(n.platforms.join(", "))} · ${plural(n.count, "mention")}, first ${esc(ago(n.first_seen))}${note ? ` · <i>${note}</i>` : ""}${inAI ? ` · <i>in AI answers</i>` : ""}</span>
+    </span>
+    ${unreadSet.has(n.id) ? `<span class="nrow-dot" title="Unread alert"></span>` : "<span></span>"}
   </button>`;
 }
 
 function drawBoard() {
   const w = W.data;
-  const threats = w.narratives.filter(isThreat);
-  const low = w.narratives.filter((n) => !isThreat(n));
-  document.getElementById("w-narr-note").textContent = w.narratives.length ? `${threats.length} threats · ${low.length} low-risk` : "";
+  const threats = w.narratives.filter(isThreat).sort((a, b) => b.score - a.score);
+  const low = w.narratives.filter((n) => !isThreat(n)).sort((a, b) => b.score - a.score);
+  document.getElementById("w-narr-note").textContent = w.narratives.length ? `${threats.length} to review` : "";
   const board = document.getElementById("w-board");
   if (!w.narratives.length) {
     const errs = w.stage === "waiting" ? Object.entries(w.sources_status || {}).filter(([, v]) => v.startsWith("error")) : [];
-    board.innerHTML = `<div class="empty card">${w.cycles && w.stage === "waiting" ? "No mentions found yet." : "First sweep running: pulling the last 7 days of public mentions, then reading every one..."}
+    board.innerHTML = `<div class="empty">${w.cycles && w.stage === "waiting" ? "No mentions found yet." : "First sweep running: pulling the last 7 days of public mentions, then reading every one..."}
       ${errs.length ? `<div class="small muted" style="margin-top:6px">Some sources didn't respond; details under Sources and log.</div>` : ""}</div>`;
     return;
   }
-  board.innerHTML = `<div class="board">${threats.map(narrCard).join("") || `<div class="empty card">No threat narratives right now. Low-risk chatter is below.</div>`}</div>
-    ${low.length ? `<button class="linkish small low-toggle" id="w-low">${W.showLow ? "Hide" : "Show"} low-risk chatter (${low.length})</button>
-    ${W.showLow ? `<div class="board low">${low.map(narrCard).join("")}</div>` : ""}` : ""}`;
-  board.querySelectorAll("[data-nid]").forEach((b) => b.addEventListener("click", () => { W.sel = b.dataset.nid; W.tracing = false; drawBoard(); drawDetail(true); drawStream(); document.getElementById("w-detail").scrollIntoView({ behavior: "smooth", block: "start" }); }));
+  const unreadSet = new Set(w.alerts.filter((a) => !a.read).map((a) => a.narrative_id));
+  const lvl = (n) => n.playbook?.response_level || "";
+  const groups = [
+    ["act", "Needs a response", threats.filter((n) => ["respond", "escalate"].includes(lvl(n)))],
+    ["prep", "Prepare", threats.filter((n) => lvl(n) === "prepare")],
+    ["mon", "Monitor", threats.filter((n) => !["respond", "escalate", "prepare"].includes(lvl(n)))],
+  ].filter(([, , list]) => list.length);
+  board.innerHTML = groups.map(([g, label, list]) => `<div class="qgroup" data-g="${g}"><div class="qgroup-h"><span>${label}</span><span>${list.length}</span></div>${list.map((n) => narrRow(n, unreadSet)).join("")}</div>`).join("")
+    + (low.length ? `<button class="linkish small low-toggle" id="w-low">${W.showLow ? "Hide" : "Show"} low-risk chatter (${low.length})</button>
+    ${W.showLow ? `<div class="qgroup" data-g="low">${low.map((n) => narrRow(n, unreadSet)).join("")}</div>` : ""}` : "");
+  board.querySelectorAll("[data-nid]").forEach((b) => b.addEventListener("click", () => selectNarrative(b.dataset.nid)));
   document.getElementById("w-low")?.addEventListener("click", () => { W.showLow = !W.showLow; drawBoard(); });
 }
 
@@ -1025,7 +1045,7 @@ function drawAlerts() {
       <div><div class="al-title">${esc(a.title)}</div><div class="al-reason">${esc(a.reason)}</div>
       <div class="al-meta">${esc(ago(a.at))}${a.delivered.length ? ` · sent to ${esc(a.delivered.join(", "))}` : ""}</div></div></li>`).join("")}</ul>`
     : `<div class="empty">No alerts yet. You'll get one when a narrative turns serious, speeds up, jumps platforms or reaches the news.</div>`;
-  el.querySelectorAll("[data-anid]").forEach((li) => li.addEventListener("click", () => { if (li.dataset.anid) { W.sel = li.dataset.anid; drawBoard(); drawDetail(true); drawStream(); } }));
+  el.querySelectorAll("[data-anid]").forEach((li) => li.addEventListener("click", () => { if (li.dataset.anid) selectNarrative(li.dataset.anid); }));
 }
 
 function streamRow(m, fresh) {
