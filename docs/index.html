@@ -8,33 +8,23 @@
 /* Layout concept: a fixed stage (live fluid + exploded glass device) with a quiet text rail on the left.
    Page scroll only drives the sequence. Dark-first, bone-white second. One signal colour, one calm colour. */
 :root{
-  color-scheme:dark;
-  --bg:#0C0D0F; --fg:#ECEBE7; --fg2:#B4B3AE; --dim:#8E8F92; --faint:#55575B;
-  --line:rgba(236,235,231,.14);
-  --signal:#FF4A24; --signal-hot:#FFB496; --calm:#2FA58C; --calm-hot:#D3F4EA;
-  --btn-hi:#25272B; --btn-lo:#16171A; --btn-edge:rgba(255,255,255,.10); --btn-shadow:rgba(0,0,0,.65);
-  --veil:rgba(12,13,15,.9); --veil-0:rgba(12,13,15,0);
-  --sans:"Geist",system-ui,-apple-system,"Segoe UI",sans-serif;
-  --mono:"Geist Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
-  --dot:"Doto",ui-monospace,Menlo,monospace;
-}
-@media (prefers-color-scheme: light){
-  :root:not([data-theme="dark"]){
-    color-scheme:light;
-    --bg:#E6E4DF; --fg:#131415; --fg2:#3B3B39; --dim:#6B6A67; --faint:#A5A39D;
-    --line:rgba(19,20,21,.16);
-    --signal:#E42D08; --signal-hot:#FF9F73; --calm:#1C7F6B; --calm-hot:#8CDAC6;
-    --btn-hi:#F4F3EF; --btn-lo:#D9D7D1; --btn-edge:rgba(255,255,255,.95); --btn-shadow:rgba(70,62,48,.38);
-    --veil:rgba(230,228,223,.9); --veil-0:rgba(230,228,223,0);
-  }
-}
-:root[data-theme="light"]{
   color-scheme:light;
   --bg:#E6E4DF; --fg:#131415; --fg2:#3B3B39; --dim:#6B6A67; --faint:#A5A39D;
   --line:rgba(19,20,21,.16);
   --signal:#E42D08; --signal-hot:#FF9F73; --calm:#1C7F6B; --calm-hot:#8CDAC6;
   --btn-hi:#F4F3EF; --btn-lo:#D9D7D1; --btn-edge:rgba(255,255,255,.95); --btn-shadow:rgba(70,62,48,.38);
   --veil:rgba(230,228,223,.9); --veil-0:rgba(230,228,223,0);
+  --sans:"Geist",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --mono:"Geist Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
+  --dot:"Doto",ui-monospace,Menlo,monospace;
+}
+:root[data-theme="dark"]{
+  color-scheme:dark;
+  --bg:#0C0D0F; --fg:#ECEBE7; --fg2:#B4B3AE; --dim:#8E8F92; --faint:#55575B;
+  --line:rgba(236,235,231,.14);
+  --signal:#FF4A24; --signal-hot:#FFB496; --calm:#2FA58C; --calm-hot:#D3F4EA;
+  --btn-hi:#25272B; --btn-lo:#16171A; --btn-edge:rgba(255,255,255,.10); --btn-shadow:rgba(0,0,0,.65);
+  --veil:rgba(12,13,15,.9); --veil-0:rgba(12,13,15,0);
 }
 html{scroll-snap-type:y proximity}
 body{background:var(--bg);color:var(--fg);font:400 15px/1.55 var(--sans);overflow-x:hidden;-webkit-font-smoothing:antialiased}
