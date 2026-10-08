@@ -6,11 +6,14 @@
   <title>Contagion</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/static/app.css">
+  <link rel="stylesheet" href="/static/theme.css">
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Ccircle cx='8' cy='8' r='3' fill='%23C8361B'/%3E%3Ccircle cx='8' cy='8' r='6.5' fill='none' stroke='%23C8361B' stroke-width='1'/%3E%3C/svg%3E">
 </head>
 <body>
+  <canvas id="fx-bg" aria-hidden="true"></canvas>
+  <div class="fx-vignette" aria-hidden="true"></div>
   <header class="topbar">
     <a class="wordmark" href="#/">Contagion</a>
     <span class="tagline">Live brand threat watch, rumor trace, competitive counter</span>
@@ -21,6 +24,21 @@
   </header>
 
   <main id="view" aria-live="polite"></main>
+
+  <aside id="fx-dock" hidden aria-live="polite">
+    <div class="fx-orb" aria-hidden="true"><span class="fx-css-orb"></span></div>
+    <div class="fx-meta">
+      <div class="fx-kicker">TRACE RUNNING</div>
+      <div class="fx-stage">Working</div>
+      <div class="fx-line"></div>
+      <div class="fx-bar"><i></i></div>
+    </div>
+  </aside>
+
+  <div id="fx-overlay" aria-hidden="true">
+    <div class="fx-ov-orb"><span class="fx-css-orb"></span></div>
+    <div class="fx-ov-label">Loading</div>
+  </div>
 
   <dialog id="status-dialog">
     <div class="dialog-head">
@@ -39,6 +57,7 @@
     </form>
   </dialog>
 
+  <script src="/static/fx.js" type="module"></script>
   <script src="/static/app.js" type="module"></script>
 </body>
 </html>

@@ -1,6 +1,7 @@
 // Contagion UI. Vanilla JS, no build step. All scraped text is escaped before rendering.
 
 const view = document.getElementById("view");
+const FX = window.FX;   // optional visual layer (fx.js); everything works without it
 const state = { config: null, token: sessionStorageGet("contagion_token") || "", es: null, tab: "spread", filter: "all", probe: null, mode: "watch" };
 
 const STAGES_DEFEND = [["discovery", "Discovery"], ["analysis", "Analysis"], ["cross_reference", "Cross-referencing"], ["synthesis", "Synthesis"]];
@@ -57,6 +58,8 @@ document.getElementById("nav-status").addEventListener("click", showStatus);
 async function route() {
   if (state.es) { state.es.close(); state.es = null; }
   stopWatchTimers();
+  FX?.run.hide();
+  FX?.busy.begin("Loading");
   const m = location.hash.match(/^#\/case\/([\w-]+)/);
   const mw = location.hash.match(/^#\/watch\/([\w-]+)/);
   try {
@@ -66,6 +69,9 @@ async function route() {
     else await renderHome();
   } catch (err) {
     view.innerHTML = `<div class="error-box">Couldn't load: ${esc(err.message)}</div>`;
+  } finally {
+    FX?.busy.end();
+    FX?.enter(view);
   }
 }
 
@@ -160,12 +166,13 @@ async function submitCase(e) {
   const btn = e.target.querySelector("button[type=submit]");
   btn.disabled = true; btn.textContent = "Starting...";
   try {
+    FX?.busy.begin("Launching trace");
     const { id } = await api("/api/cases", { method: "POST", body: JSON.stringify(body) });
     location.hash = `#/case/${id}`;
   } catch (err) {
     document.getElementById("form-error").innerHTML = `<div class="error-box">${esc(err.message)}</div>`;
     btn.disabled = false; btn.textContent = "Start trace";
-  }
+  } finally { FX?.busy.end(); }
 }
 
 // ---------- case ----------
@@ -265,6 +272,12 @@ function drawStepper() {
   const stages = stagesFor(current);
   const idx = stages.findIndex(([k]) => k === current.stage);
   const done = current.status === "done";
+  const live = current.status === "running" || current.status === "queued";
+  FX?.run.sync({
+    active: live, stages: stages.map(([, l]) => l), index: idx, done,
+    kicker: current.mode === "counter" ? "COUNTER RUNNING" : current.status === "queued" ? "QUEUED" : "TRACE RUNNING",
+    line: current.log?.length ? current.log[current.log.length - 1].message || "" : "",
+  });
   el.innerHTML = stages.map(([k, label], i) => {
     const cls = done || i < idx ? "done" : i === idx && current.status === "running" ? "active" : "";
     return `<div class="step ${cls}">${label}</div>`;
@@ -601,13 +614,14 @@ function wireCounterForm() {
     const btn = form.querySelector("button[type=submit]");
     btn.disabled = true; btn.textContent = "Starting...";
     try {
+      FX?.busy.begin("Launching counter");
       const { id } = await api("/api/counter", { method: "POST", body: JSON.stringify(body) });
       state.tab = "opps";
       location.hash = `#/case/${id}`;
     } catch (err) {
       document.getElementById("form-error").innerHTML = `<div class="error-box">${esc(err.message)}</div>`;
       btn.disabled = false; btn.textContent = "Find openings";
-    }
+    } finally { FX?.busy.end(); }
   });
 }
 
@@ -808,12 +822,13 @@ function wireWatchForm() {
     const btn = e.target.querySelector("button[type=submit]");
     btn.disabled = true; btn.textContent = "Starting...";
     try {
+      FX?.busy.begin("Starting watch");
       const { id } = await api("/api/watch", { method: "POST", body: JSON.stringify(body) });
       location.hash = `#/watch/${id}`;
     } catch (err) {
       document.getElementById("form-error").innerHTML = `<div class="error-box">${esc(err.message)}</div>`;
       btn.disabled = false; btn.textContent = "Start watching";
-    }
+    } finally { FX?.busy.end(); }
   });
 }
 
@@ -902,8 +917,10 @@ function drawWatchStatus() {
   pill.className = `live-pill ${live ? "" : "off"}`;
   pill.querySelector("b").textContent = w.replay ? "RECORDED" : live ? "LIVE" : w.status.toUpperCase();
   const next = w.next_poll_at ? Math.max(0, Math.round((new Date(w.next_poll_at) - Date.now()) / 1000)) : null;
-  const stage = w.stage === "waiting" && next !== null ? `next poll in ${next}s` : (STAGE_LABEL[w.stage] || w.stage) + "...";
-  document.getElementById("w-meta").textContent = `Watch · started ${day(w.created_at)}, cycle ${w.cycles}${live ? ", " + stage : ""}`;
+  const wStage = w.stage === "waiting" && next !== null ? `next poll in ${next}s` : (STAGE_LABEL[w.stage] || w.stage) + "...";
+  const WST = ["polling", "triage", "playbook", "ai_check"];
+  FX?.run.sync({ active: live && w.stage !== "waiting", stages: ["Poll sources", "Read mentions", "Draft playbook", "AI check"], index: Math.max(0, WST.indexOf(w.stage)), kicker: "WATCH SWEEP", stageLabel: wStage.replace(/\.\.\.$/, ""), line: w.log?.length ? w.log[w.log.length - 1].message || "" : "" });
+  document.getElementById("w-meta").textContent = `Watch · started ${day(w.created_at)}, cycle ${w.cycles}${live ? ", " + wStage : ""}`;
   const qs = quietStats(w);
   document.getElementById("w-sub").innerHTML = `Listening across news, forums, video and the open web · checks every ${w.poll_seconds}s${(w.channels || []).length ? `, alerts to ${esc(w.channels.join(", "))}` : ""}`
     + (qs.plans ? ` · <b>recommended staying quiet on ${qs.quiet} of ${qs.plans} narrative${qs.plans === 1 ? "" : "s"}</b>${qs.avoided ? `, avoiding up to ${qs.avoided.toLocaleString()} extra exposures` : ""}` : "");
