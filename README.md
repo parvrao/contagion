@@ -4,6 +4,50 @@
 
 A rumor about a brand used to fade. Now it gets cited by AI answer engines and repeated as fact long after the news cycle ends. Contagion finds every public instance of a claim, maps how it moved across platforms, asks the AI engines what they say about it, and drafts the response. A person approves every action. Nothing is sent automatically.
 
+## Hackathon result
+
+Built for the **Profound Marketing Engineering Hackathon**, where the challenge was to solve a marketing problem at a scale traditional processes can't handle. **Contagion advanced to the semifinals**, where I presented the working, deployed prototype, its technical architecture and the business case to the judges.
+
+## The problem
+
+Brands already monitor what people say about them across news, social, forums and review sites. That is no longer the whole picture. AI assistants, search copilots and AI answers embedded in products are now often a person's first source of information about a company, and those systems learn from what is published. The question Contagion answers: **how do you manage not only what people say about you, but what AI systems say about you?**
+
+## What I built
+
+A working, deployed prototype with three connected capabilities:
+
+1. **Core monitoring (Watch).** Continuously gathers narratives from news, social platforms, forums and AI ecosystems. AI classifies each claim, groups related stories into narratives, scores risk, and recommends one of four moves: respond, monitor, correct, or avoid amplifying the issue.
+2. **Deep Trace.** For higher-risk narratives, traces the story from origin to propagation: where it started, how it moved across platforms, which sources amplified or corrected it, and whether AI systems began repeating or citing the claim. An alert becomes an investigation of the narrative path and of the sources shaping public and AI-generated answers.
+3. **Counter.** Extends the platform from reputation defense to market opportunity. Finds verified competitor pain points, matches them to available inventory, estimates the opportunity with unit economics, and drafts campaigns with guardrails and human approval before anything runs.
+
+A decision-support layer sits across all three. It evaluates each situation the way a brand or communications manager would (risk, stakeholder impact, response options, reputational implications) using frameworks such as SCCT, a Mendelow power/interest grid and RACI. It recommends; it never decides. Every action needs human review and approval.
+
+**AI visibility** was the deliberate extension of the original problem. Using Profound APIs, Contagion checks whether a narrative has started appearing in AI-generated answers, which sources influence those answers, and whether corrective actions change the outcome over time.
+
+## How it works, end to end
+
+1. A narrative enters from an external source.
+2. Contagion analyzes the content and classifies the claim (false, misframed, true but unflattering, opinion, unclear).
+3. It groups the claim with related coverage and assesses potential impact.
+4. It checks whether the same narrative appears in AI-generated answers, using Profound's AI visibility data and the AI engine probes.
+5. Higher-risk cases escalate to **Deep Trace**. Verified competitor weaknesses route to **Counter** for opportunity analysis and campaign drafting.
+6. Recommended actions and drafts wait for human approval. **Re-check** later measures whether the AI answers changed.
+
+Governing principle: **the LLM writes, the code decides, humans approve.** Models handle analysis, classification, clustering, investigation and drafting. Business rules, workflow control and governance live in deterministic code, outside the model.
+
+## How I presented it
+
+For the semifinal I did not show a dashboard alone. I:
+
+- Framed the project around a practical marketing and communications scenario.
+- Ran the deployed product live.
+- Walked the judges through the decision flow: detection, investigation, recommended action.
+- Tied the architecture to the governance principle above, so the technical choices and the business case told one story.
+
+## Tech stack
+
+Python, FastAPI, JavaScript (vanilla, no build step), Claude, Gemini, Profound APIs, Pytest, deployed on Render. Open-source tooling and cloud services throughout.
+
 ## Watch mode (live brand threat monitor)
 
 Type a brand. Contagion pulls the last 7 days, then keeps polling (News, Hacker News, Bluesky every 90 s; YouTube and a Claude open-web sweep for TikTok, X, Reddit and forums about every 15 min). Every new mention is triaged (sentiment, threat type, severity, stance) and filed under a **narrative**. Each narrative gets a 0 to 100 threat score (severity, volume, velocity vs baseline, platform reach, news pickup, negativity, unanswered share) and a status (emerging, escalating, active, fading).
