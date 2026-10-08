@@ -278,6 +278,13 @@ function drawStepper() {
     kicker: current.mode === "counter" ? "COUNTER RUNNING" : current.status === "queued" ? "QUEUED" : "TRACE RUNNING",
     line: current.log?.length ? current.log[current.log.length - 1].message || "" : "",
   });
+  window.Theater?.sync({
+    id: current.id, mode: current.mode === "counter" ? "counter" : "defend", brand: current.input?.brand || "",
+    stages: stages.map(([, l]) => l), keys: stages.map(([k]) => k), index: idx,
+    live, done, failed: current.status === "failed", log: current.log || [],
+    doneTitle: current.mode === "counter" ? "Run complete." : (current.grade?.label ? `Grade ${current.grade.level}: ${current.grade.label}.` : "Run complete."),
+    doneLine: current.mode === "counter" ? "Verified complaints, matched products and paused ad drafts are ready for review. Nothing has been published." : `Risk ${current.grade?.risk_score ?? "-"} out of 100. Drafts are pending your approval. Nothing has been sent.`,
+  });
   el.innerHTML = stages.map(([k, label], i) => {
     const cls = done || i < idx ? "done" : i === idx && current.status === "running" ? "active" : "";
     return `<div class="step ${cls}">${label}</div>`;
@@ -922,6 +929,12 @@ function drawWatchStatus() {
   const wStage = w.stage === "waiting" && next !== null ? `next poll in ${next}s` : (STAGE_LABEL[w.stage] || w.stage) + "...";
   const WST = ["polling", "triage", "playbook", "ai_check"];
   FX?.run.sync({ active: live && w.stage !== "waiting", stages: ["Poll sources", "Read mentions", "Draft playbook", "AI check"], index: Math.max(0, WST.indexOf(w.stage)), kicker: "WATCH SWEEP", stageLabel: wStage.replace(/\.\.\.$/, ""), line: w.log?.length ? w.log[w.log.length - 1].message || "" : "" });
+  window.Theater?.sync({
+    id: "watch-" + (w.id || w.brand || "w"), mode: "watch", brand: w.input?.brand || w.brand || "",
+    stages: ["Poll sources", "Read mentions", "Draft playbook", "AI check"], keys: WST, index: WST.indexOf(w.stage),
+    live: live && w.stage !== "waiting", done: w.stage === "waiting" && (w.cycles || 0) >= 1, failed: false, log: w.log || [],
+    doneTitle: "First sweep complete.", doneLine: "Watch keeps listening and will alert you on new narratives. Open the board to review what it found.",
+  });
   document.getElementById("w-meta").textContent = `Watch · started ${day(w.created_at)}, cycle ${w.cycles}${live ? ", " + wStage : ""}`;
   const qs = quietStats(w);
   document.getElementById("w-sub").innerHTML = `Listening across news, forums, video and the open web · checks every ${w.poll_seconds}s${(w.channels || []).length ? `, alerts to ${esc(w.channels.join(", "))}` : ""}`

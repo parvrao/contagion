@@ -1,0 +1,91 @@
+/* Run Theater: full-screen processing view. Shown while a trace, counter run or the first
+   watch sweep is running. Driven by the same log events the Log tab shows. */
+
+#theater {
+  --t-bg: #0c0d0f; --t-fg: #eceae6; --t-fg2: #b4b3ae; --t-dim: #8a8b8f; --t-faint: #55575b;
+  --t-line: rgba(236, 234, 230, 0.14);
+  --t-signal: #ff4a24; --t-calm: #2fa58c; --t-warn: #f0b24a;
+  --t-hi: #25272b; --t-lo: #16171a; --t-edge: rgba(255, 255, 255, 0.1); --t-shadow: rgba(0, 0, 0, 0.65);
+  --t-gut: clamp(16px, 4.2vw, 68px);
+  position: fixed; inset: 0; z-index: 55; color: var(--t-fg);
+  background: radial-gradient(70% 60% at 72% 58%, rgba(255, 74, 36, 0.10), transparent 70%), var(--t-bg);
+  font: 400 15px/1.55 "IBM Plex Sans", system-ui, sans-serif;
+  opacity: 0; pointer-events: none; transition: opacity 0.45s ease;
+  display: grid; grid-template-columns: minmax(0, 36rem) minmax(0, 1fr);
+  padding: clamp(14px, 3vh, 28px) var(--t-gut);
+}
+#theater.on { opacity: 1; pointer-events: auto; }
+#theater[hidden] { display: none; }
+body.theater-open { overflow: hidden; }
+body.theater-open #fx-dock, body.theater-open #fx-overlay { display: none; }
+
+#theater .t-canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; cursor: grab; }
+#theater .t-canvas:active { cursor: grabbing; }
+#theater .t-veil { position: absolute; inset: 0; pointer-events: none;
+  background: linear-gradient(90deg, rgba(12, 13, 15, 0.92) 0%, rgba(12, 13, 15, 0.92) 16%, rgba(12, 13, 15, 0) 58%); }
+
+#theater .t-top { position: absolute; left: var(--t-gut); right: var(--t-gut); top: clamp(14px, 3vh, 28px);
+  display: flex; justify-content: space-between; align-items: center; gap: 12px; z-index: 2; }
+#theater .t-mark { font: 600 13px/1 "IBM Plex Mono", ui-monospace, monospace; letter-spacing: 0.14em; }
+#theater .t-clock { font: 400 11px/1 "IBM Plex Mono", ui-monospace, monospace; color: var(--t-dim); margin-right: 14px; }
+#theater .t-right { display: flex; align-items: center; }
+
+#theater .t-soft { display: inline-flex; align-items: center; gap: 9px; border: 0; cursor: pointer; text-decoration: none;
+  padding: 0.62rem 1rem; border-radius: 999px; color: var(--t-fg); font: 500 0.78rem/1 "IBM Plex Sans", system-ui, sans-serif;
+  background: linear-gradient(180deg, var(--t-hi), var(--t-lo));
+  box-shadow: inset 0 1px 0 var(--t-edge), inset 0 -2px 3px rgba(0, 0, 0, 0.35), 0 6px 14px -6px var(--t-shadow), 0 1px 2px var(--t-shadow);
+  transition: transform 0.12s ease, filter 0.2s ease; }
+#theater .t-soft:hover { filter: brightness(1.12); }
+#theater .t-soft:active { transform: translateY(1px); }
+#theater .t-soft:focus-visible { outline: 2px solid var(--t-calm); outline-offset: 3px; }
+#theater .t-soft.primary { background: linear-gradient(180deg, #ff6a45, #d93a17); color: #fff;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.35), inset 0 -2px 3px rgba(0, 0, 0, 0.25), 0 8px 18px -8px rgba(255, 74, 36, 0.7); }
+
+#theater .t-copy { position: relative; z-index: 1; align-self: stretch; display: flex; flex-direction: column; justify-content: center;
+  gap: 1.1rem; padding-block: clamp(64px, 11vh, 110px) clamp(24px, 6vh, 56px); min-height: 0; }
+#theater .t-kick { font: 400 11px/1 "IBM Plex Mono", ui-monospace, monospace; color: var(--t-dim); letter-spacing: 0.02em; }
+#theater .t-title { margin: 0; font: 300 clamp(1.9rem, 3.6vw, 2.9rem)/1.08 "IBM Plex Sans", system-ui, sans-serif;
+  letter-spacing: -0.02em; text-wrap: balance; }
+#theater .t-what { margin: 0; max-width: 44ch; color: var(--t-fg2); font-size: 0.97rem; text-wrap: pretty;
+  padding-left: 0.85rem; border-left: 2px solid var(--t-signal); }
+
+#theater .t-steps { display: flex; flex-wrap: wrap; gap: 8px 18px; margin: 0; padding: 0; list-style: none;
+  font: 400 12px/1 "IBM Plex Mono", ui-monospace, monospace; color: var(--t-faint); }
+#theater .t-steps li { display: flex; align-items: center; gap: 8px; }
+#theater .t-steps i { width: 7px; height: 7px; border-radius: 50%; background: var(--t-faint); transition: background 0.3s, box-shadow 0.3s; }
+#theater .t-steps li.done { color: var(--t-fg2); }
+#theater .t-steps li.done i { background: var(--t-calm); }
+#theater .t-steps li.active { color: var(--t-fg); }
+#theater .t-steps li.active i { background: var(--t-signal); box-shadow: 0 0 9px var(--t-signal); animation: t-pulse 1.1s ease-in-out infinite; }
+@keyframes t-pulse { 50% { opacity: 0.35; } }
+
+#theater .t-term { margin: 0; font: 400 12px/1.65 "IBM Plex Mono", ui-monospace, monospace; color: var(--t-fg2);
+  display: flex; flex-direction: column; justify-content: flex-end; overflow: hidden; min-height: 0;
+  max-height: clamp(150px, 34vh, 340px); white-space: pre-wrap; overflow-wrap: anywhere; }
+#theater .t-term .ln { display: block; }
+#theater .t-term .ln .s { color: var(--t-dim); margin-right: 10px; }
+#theater .t-term .ln.warn { color: var(--t-warn); }
+#theater .t-term .ln.error { color: var(--t-signal); }
+#theater .t-term .ln.last::after { content: ""; display: inline-block; width: 7px; height: 1em; margin-left: 3px; vertical-align: -2px; background: var(--t-fg); animation: t-pulse 0.9s steps(1) infinite; }
+
+#theater .t-legend { position: absolute; right: calc(var(--t-gut) + 14px); top: clamp(64px, 11vh, 88px); z-index: 2; display: grid; gap: 4px;
+  justify-items: end; font: 500 10.5px/1 "IBM Plex Mono", ui-monospace, monospace; color: var(--t-fg); pointer-events: none; }
+#theater .t-legend span { display: none; }
+#theater .t-legend span.on { display: block; }
+#theater .t-legend span::before { content: ""; display: inline-block; width: 16px; height: 1px; background: var(--t-signal); vertical-align: middle; margin-right: 7px; }
+
+#theater .t-actions { display: flex; gap: 10px; flex-wrap: wrap; min-height: 2.4rem; }
+#theater .t-note { position: absolute; left: var(--t-gut); bottom: clamp(12px, 3vh, 26px); z-index: 2; font: 400 11px/1.4 "IBM Plex Mono", ui-monospace, monospace; color: var(--t-faint); }
+
+@media (max-width: 760px) {
+  #theater { grid-template-columns: minmax(0, 1fr); }
+  #theater .t-veil { background: linear-gradient(0deg, rgba(12, 13, 15, 0.94) 0%, rgba(12, 13, 15, 0.94) 52%, rgba(12, 13, 15, 0) 78%); }
+  #theater .t-copy { justify-content: flex-end; padding-block: 64px 44px; gap: 0.8rem; }
+  #theater .t-what { font-size: 0.88rem; }
+  #theater .t-term { max-height: 22vh; }
+  #theater .t-legend { display: none; }
+  #theater .t-clock { display: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  #theater, #theater .t-steps li.active i, #theater .t-term .ln.last::after { transition: none; animation: none; }
+}

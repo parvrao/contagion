@@ -48,6 +48,16 @@ For the semifinal I did not show a dashboard alone. I:
 
 Python, FastAPI, JavaScript (vanilla, no build step), Claude, Gemini, Profound APIs, Pytest, deployed on Render. Open-source tooling and cloud services throughout.
 
+## Run Theater (what you see while a run works)
+
+While a Deep Trace, a Counter run or the first Watch sweep is running, the app opens a full-screen view that shows the machine working. It is driven by the same log events as the Log tab, so nothing on it is staged.
+
+- **Left:** the current stage in plain words, a four-step tracker, and the real log lines as they arrive.
+- **Right:** the five system layers opened up as glass plates. The parts doing work right now glow red, parts from finished stages turn teal, and particles flow out of the active ones. Drag to turn it.
+- **When it ends:** the view shows the grade and a **See results** button. **Minimize** (or Esc) hides it and the run continues in the corner dock.
+
+It is progressive enhancement. With no WebGL the terminal and tracker still work. Files: `web/theater.js`, `web/theater.css`. An interactive walkthrough of the whole system lives in `docs/index.html`.
+
 ## Watch mode (live brand threat monitor)
 
 Type a brand. Contagion pulls the last 7 days, then keeps polling (News, Hacker News, Bluesky every 90 s; YouTube and a Claude open-web sweep for TikTok, X, Reddit and forums about every 15 min). Every new mention is triaged (sentiment, threat type, severity, stance) and filed under a **narrative**. Each narrative gets a 0 to 100 threat score (severity, volume, velocity vs baseline, platform reach, news pickup, negativity, unanswered share) and a status (emerging, escalating, active, fading).
